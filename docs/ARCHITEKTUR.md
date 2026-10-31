@@ -5,7 +5,7 @@ Diese Doku erklärt, wie die Firmware aufgebaut ist, was welches Modul tut und w
 - **Kern-Framework**: Motor/FOC, virtuelle Haptik, Eingaben (Drehen, Drücken, Sensoren), Tasks und Ablaufsteuerung. Das sollte man nur mit gutem Grund anfassen.
 - **Apps und UI**: Bildschirme, Menü, Home-Assistant-Apps, Spotify, Demo. Hier kann man gefahrlos ändern und erweitern.
 
-> Stand: Code auf `master` (Commit `afd6632`, „Spotify App“). Pfade beziehen sich auf `firmware/src/`.
+> Stand: Code auf `main` (Commit `afd6632`, „Spotify App“). Pfade beziehen sich auf `firmware/src/`.
 
 ## Inhalt
 
