@@ -121,6 +121,8 @@ private:
     cJSON *json;
 
     bool first_run = true;
+    bool awaiting_page_config = false;
+    unsigned long page_switched_at = 0;
 
     uint8_t r = 0;
     uint8_t g = 0;

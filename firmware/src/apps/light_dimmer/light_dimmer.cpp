@@ -29,45 +29,38 @@ void LightDimmerApp::handleNavigation(NavigationEvent event)
 {
     uint8_t prev_nonce = motor_config.position_nonce;
     LightDimmerPages page_num = page_mgr_->getCurrentPageNum();
+
+    // Remember where the knob was on the page we are leaving.
+    switch (page_num)
+    {
+    case LIGHT_DIMMER_PAGE:
+        dimmer_config = motor_config;
+        break;
+    case HUE_PAGE:
+        hue_config = motor_config;
+        break;
+    case TEMP_PAGE:
+        temp_config = motor_config;
+        break;
+    default:
+        break;
+    }
+
+    LightDimmerPages next_page = page_num;
     switch (event)
     {
     case SHORT:
-        switch (page_mgr_->getCurrentPageNum())
+        // Short press cycles brightness -> color temperature -> hue -> brightness.
+        switch (page_num)
         {
         case LIGHT_DIMMER_PAGE:
-            dimmer_config = motor_config;
-            motor_config = page_selector_config;
-            motor_config.position = 0;
-            page_mgr_->show(PAGE_SELECTOR);
-            break;
-        case PAGE_SELECTOR:
-            switch (2 + current_position)
-            {
-            case HUE_PAGE:
-                motor_config = hue_config;
-                page_mgr_->show(HUE_PAGE);
-                break;
-            case TEMP_PAGE:
-                motor_config = temp_config;
-                page_mgr_->show(TEMP_PAGE);
-                break;
-            // case PRESETS_PAGE:
-            //     page_mgr_->show(PRESETS_PAGE);
-            //     break;
-            default:
-                LOGW("No valid page found, page number: %d", 2 + current_position);
-                break;
-            }
-            break;
-        case HUE_PAGE:
-            motor_config = temp_config;
-            page_mgr_->show(TEMP_PAGE);
+            next_page = TEMP_PAGE;
             break;
         case TEMP_PAGE:
-            motor_config = dimmer_config; // TODO: Change to preset config etc
-            page_mgr_->show(LIGHT_DIMMER_PAGE);
+            next_page = HUE_PAGE;
             break;
         default:
+            next_page = LIGHT_DIMMER_PAGE;
             break;
         }
         break;
@@ -76,28 +69,34 @@ void LightDimmerApp::handleNavigation(NavigationEvent event)
         {
             return;
         }
-
-        switch (page_num)
-        {
-        case HUE_PAGE:
-            hue_config = motor_config;
-            break;
-        case TEMP_PAGE:
-            temp_config = motor_config;
-            break;
-            // case PRESETS_PAGE:
-            //     page_mgr_->show(PRESETS_PAGE);
-            //     break;
-        default:
-            break;
-        }
-        motor_config = dimmer_config;
-        page_mgr_->show(LIGHT_DIMMER_PAGE);
+        next_page = LIGHT_DIMMER_PAGE;
         break;
     default:
+        return;
+    }
+
+    switch (next_page)
+    {
+    case TEMP_PAGE:
+        motor_config = temp_config;
+        break;
+    case HUE_PAGE:
+        motor_config = hue_config;
+        break;
+    default:
+        motor_config = dimmer_config;
         break;
     }
+    page_mgr_->show(next_page);
+
     motor_config.position_nonce = prev_nonce + 1;
+
+    // Ignore knob states until the motor runs the new page's config, otherwise the
+    // old page's position would be sent as a value for the new page.
+    current_position = motor_config.position;
+    last_position = current_position;
+    awaiting_page_config = true;
+    page_switched_at = millis();
 }
 
 int8_t LightDimmerApp::navigationNext()
@@ -122,6 +121,16 @@ EntityStateUpdate LightDimmerApp::updateStateFromKnob(PB_SmartKnobState state)
     {
         state_sent_from_hass = false;
         return new_state;
+    }
+
+    if (awaiting_page_config)
+    {
+        if (state.config.position_nonce != motor_config.position_nonce && millis() - page_switched_at < 500)
+        {
+            return new_state;
+        }
+        awaiting_page_config = false;
+        last_position = state.current_position;
     }
 
     current_position = state.current_position;
@@ -207,7 +216,11 @@ EntityStateUpdate LightDimmerApp::updateStateFromKnob(PB_SmartKnobState state)
         snprintf(new_state.state, sizeof(new_state.state) - 1, "%s", json_str);
 
         cJSON_free(json_str);
-        cJSON_Delete(rgb);
+        // rgb is owned by json once it was attached on the hue page; deleting it twice crashed the knob.
+        if (page_num != HUE_PAGE)
+        {
+            cJSON_Delete(rgb);
+        }
         cJSON_Delete(json);
 
         snprintf(new_state.app_slug, sizeof(new_state.app_slug) - 1, "%s", APP_SLUG_LIGHT_DIMMER);
