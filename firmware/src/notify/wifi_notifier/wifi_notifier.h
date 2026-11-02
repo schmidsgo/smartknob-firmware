@@ -9,7 +9,8 @@ enum WiFiCommandType
 {
     RequestAP,
     RequestSTA,
-    RequestRedirect
+    RequestRedirect,
+    RequestForget
 };
 
 enum RedirectPage
@@ -41,6 +42,7 @@ public:
     WiFiNotifier();
     void requestAP();
     void requestSTA(WiFiConfiguration wifi_config);
+    void requestForget();
     void loopTick();
     void setCallback(WiFiNotifierCallback callback);
     void redirect(RedirectPage page);

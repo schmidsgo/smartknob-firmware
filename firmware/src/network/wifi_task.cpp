@@ -47,6 +47,9 @@ void WifiTask::handleCommand(WiFiCommand command)
     switch (command.type)
     {
     case RequestAP:
+        // Stop retrying a saved network in the background while the user sets up a new one.
+        is_config_set = false;
+        retry_count = 0;
         this->startWiFiAP();
         this->startWebServer();
         break;
@@ -75,6 +78,11 @@ void WifiTask::handleCommand(WiFiCommand command)
         default:
             break;
         }
+        break;
+    case RequestForget:
+        is_config_set = false;
+        retry_count = 0;
+        WiFi.disconnect();
         break;
     default:
         break;
@@ -402,7 +410,7 @@ void WifiTask::webHandlerMQTTCredentials()
     event.body.mqtt_connecting.port = port;
     sprintf(event.body.mqtt_connecting.user, "%s", username);
     sprintf(event.body.mqtt_connecting.password, "%s", password);
-    LOGD("MQTT credentials recieved: %s %d %s %s %s", event.body.mqtt_connecting.host, event.body.mqtt_connecting.port, event.body.mqtt_connecting.user, event.body.mqtt_connecting.password, wifi_config_.knob_id);
+    LOGD("MQTT credentials recieved: %s %d %s %s", event.body.mqtt_connecting.host, event.body.mqtt_connecting.port, event.body.mqtt_connecting.user, wifi_config_.knob_id);
     sprintf(event.body.mqtt_connecting.knob_id, "%s", wifi_config_.knob_id);
 
     publishWiFiEvent(event);
@@ -512,6 +520,11 @@ void WifiTask::downloadConfig()
 
 void WifiTask::startWebServer()
 {
+    if (is_webserver_started)
+    {
+        return; // Already running, e.g. STA was started at boot and the onboarding now requests the AP.
+    }
+
     server_ = new WebServer(80);
     ElegantOTA.begin(server_);
 

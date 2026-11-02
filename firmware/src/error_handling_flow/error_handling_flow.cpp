@@ -57,6 +57,7 @@ void ErrorHandlingFlow::handleEvent(WiFiEvent event)
         //! DELETE TIMER ON RESET PAGE IN PAGE MANAGER??
     case SK_DISMISS_ERROR:
     case SK_RESET_ERROR:
+    case SK_WIFI_SETUP_RESTART:
         error_type = NO_ERROR;
         error_state = {
             NO_ERROR,
@@ -92,6 +93,13 @@ void ErrorHandlingFlow::handleEvent(WiFiEvent event)
         }
 
         error_page->error_state = error_state;
+        if (isWiFiChoiceActive())
+        {
+            // Let the user pick between retrying and a new WiFi setup by rotating the knob.
+            selected_option = WIFI_ERROR_OPTION_RETRY;
+            error_page->setSelectedOption(selected_option);
+            motor_notifier->requestUpdate(choice_motor_config);
+        }
         error_page->show();
         page_manager->render(ErrorPages::ERROR_PAGE);
         break;
@@ -112,7 +120,15 @@ void ErrorHandlingFlow::handleNavigationEvent(NavigationEvent event)
     {
     case NavigationEvent::SHORT:
         send_event.type = SK_RESET_ERROR;
-        if (error_type == MQTT_ERROR && error_state.latest_event.type == SK_MQTT_RETRY_LIMIT_REACHED)
+        if (isWiFiChoiceActive())
+        {
+            if (selected_option == WIFI_ERROR_OPTION_SETUP)
+            {
+                send_event.type = SK_WIFI_SETUP_RESTART;
+            }
+            publishEvent(send_event); // SK_RESET_ERROR makes the WiFi task try 3 more times.
+        }
+        else if (error_type == MQTT_ERROR && error_state.latest_event.type == SK_MQTT_RETRY_LIMIT_REACHED)
         {
             publishEvent(send_event);
         }
@@ -135,6 +151,29 @@ void ErrorHandlingFlow::handleNavigationEvent(NavigationEvent event)
     default:
         break;
     }
+}
+
+void ErrorHandlingFlow::update(AppState state)
+{
+    if (!isWiFiChoiceActive())
+    {
+        return;
+    }
+
+    int32_t position = state.motor_state.current_position;
+    position = max((int32_t)WIFI_ERROR_OPTION_RETRY, min(position, (int32_t)WIFI_ERROR_OPTION_COUNT - 1));
+    if (position != selected_option)
+    {
+        selected_option = position;
+
+        SemaphoreGuard lock(mutex_);
+        ((ErrorPage *)page_manager->getPage(ErrorPages::ERROR_PAGE))->setSelectedOption(selected_option);
+    }
+}
+
+bool ErrorHandlingFlow::isWiFiChoiceActive()
+{
+    return error_type == WIFI_ERROR && error_state.latest_event.type == SK_WIFI_STA_RETRY_LIMIT_REACHED;
 }
 
 void ErrorHandlingFlow::setMotorNotifier(MotorNotifier *motor_notifier)

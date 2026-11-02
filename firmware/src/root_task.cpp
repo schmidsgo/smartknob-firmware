@@ -283,16 +283,20 @@ void RootTask::run()
                 break;
 #if SK_MQTT
             case SK_RESET_ERROR:
+                // Restore the app's motor config, the error screen replaced it with its own.
                 switch (configuration_->getOSConfiguration()->mode)
                 {
                 case ONBOARDING:
                     display_task_->enableOnboarding();
+                    display_task_->getOnboardingFlow()->triggerMotorConfigUpdate();
                     break;
                 case HASS:
                     display_task_->enableHass();
+                    display_task_->getHassApps()->triggerMotorConfigUpdate();
                     break;
                 case SPOTIFY:
                     display_task_->enableSpotify();
+                    display_task_->getSpotifyStandalone()->triggerMotorConfigUpdate();
                     break;
                 default:
                     break;
@@ -301,6 +305,23 @@ void RootTask::run()
                 mqtt_task_->handleEvent(wifi_event);
                 display_task_->getErrorHandlingFlow()->handleEvent(wifi_event); // if reset error or dismiss error is triggered elsewhere.
                 break;
+            case SK_WIFI_SETUP_RESTART:
+            {
+                // User chose to set up WiFi again after the retry limit: forget the network and start onboarding from the beginning.
+                configuration_->clearWiFiConfiguration();
+                wifi_task_->getNotifier()->requestForget();
+
+                OSConfiguration *os_config = configuration_->getOSConfiguration();
+                os_config->mode = ONBOARDING;
+                configuration_->saveOSConfigurationInMemory(*os_config);
+                configuration_->saveOSConfiguration(*os_config);
+                LOGI("WiFi setup restarted, OS mode set to %d", os_config->mode);
+
+                display_task_->getErrorHandlingFlow()->handleEvent(wifi_event);
+                display_task_->enableOnboarding();
+                display_task_->getOnboardingFlow()->render();
+                break;
+            }
             case SK_WIFI_STA_CONNECTED:
                 if (configuration_->getOSConfiguration()->mode == HASS)
                 {
@@ -511,25 +532,36 @@ void RootTask::run()
             currentSubPosition = roundedNewPosition;
             app_state.motor_state = latest_state_;
             app_state.os_mode_state = configuration_->getOSConfiguration()->mode;
-            switch (app_state.os_mode_state)
+            if (display_task_->getErrorHandlingFlow()->getErrorType() != NO_ERROR)
             {
-            case OSMode::ONBOARDING:
-                if (strcmp(latest_state_.config.id, "ONBOARDING") == 0)
+                // Error screen is in front: rotation picks an option there instead of moving the hidden app.
+                if (strcmp(latest_state_.config.id, ERROR_CHOICE_CONFIG_ID) == 0)
                 {
-                    entity_state_update_to_send = display_task_->getOnboardingFlow()->update(app_state);
+                    display_task_->getErrorHandlingFlow()->update(app_state);
                 }
-                break;
-            case OSMode::DEMO:
-                entity_state_update_to_send = display_task_->getDemoApps()->update(app_state);
-                break;
-            case OSMode::HASS:
-                entity_state_update_to_send = display_task_->getHassApps()->update(app_state);
-                break;
-            case OSMode::SPOTIFY:
-                entity_state_update_to_send = display_task_->getSpotifyStandalone()->update(app_state);
-                break;
-            default:
-                break;
+            }
+            else
+            {
+                switch (app_state.os_mode_state)
+                {
+                case OSMode::ONBOARDING:
+                    if (strcmp(latest_state_.config.id, "ONBOARDING") == 0)
+                    {
+                        entity_state_update_to_send = display_task_->getOnboardingFlow()->update(app_state);
+                    }
+                    break;
+                case OSMode::DEMO:
+                    entity_state_update_to_send = display_task_->getDemoApps()->update(app_state);
+                    break;
+                case OSMode::HASS:
+                    entity_state_update_to_send = display_task_->getHassApps()->update(app_state);
+                    break;
+                case OSMode::SPOTIFY:
+                    entity_state_update_to_send = display_task_->getSpotifyStandalone()->update(app_state);
+                    break;
+                default:
+                    break;
+                }
             }
 
 #if SK_ALS
@@ -831,7 +863,8 @@ void RootTask::loadConfiguration()
             configuration_->loadOSConfiguration();
             OSMode os_mode = configuration_->getOSConfiguration()->mode;
 #if SK_WIFI
-            if ((os_mode == OSMode::HASS || os_mode == OSMode::SPOTIFY) && configuration_->loadWiFiConfiguration())
+            // Reconnect to the last working network even if HASS/Spotify setup was not finished yet.
+            if (configuration_->loadWiFiConfiguration())
             {
                 WiFiConfiguration wifi_config = configuration_->getWiFiConfiguration();
                 // TODO: send event to wifi to start STA part with given credentials

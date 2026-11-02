@@ -12,6 +12,7 @@ public:
     void setErrorEventLabel(const char *label);
 
     void setQr(const char *qr_data);
+    void setSelectedOption(uint8_t option);
 
     lv_obj_t *getPage();
 
@@ -24,6 +25,9 @@ public:
 
     lv_obj_t *qr_code;
     lv_obj_t *press_to_retry_label;
+
+    lv_obj_t *retry_option_label;
+    lv_obj_t *setup_option_label;
 
     ErrorState error_state;
     lv_timer_t *timer = nullptr;

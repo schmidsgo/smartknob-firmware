@@ -141,7 +141,34 @@ public:
         lv_obj_t *wifi_label = lv_label_create(page);
         lv_label_set_text(wifi_label, "MQTT");
         lv_obj_align(wifi_label, LV_ALIGN_BOTTOM_MID, 0, -12);
+
+        // Shown instead of the label above when the WiFi step was skipped and the browser has to be opened on the LAN IP.
+        continue_label = label;
+        qr = lv_qrcode_create(page, 80, LV_COLOR_MAKE(0x00, 0x00, 0x00), LV_COLOR_MAKE(0xFF, 0xFF, 0xFF));
+        lv_qrcode_update(qr, "", strlen(""));
+        lv_obj_center(qr);
+        lv_obj_add_flag(qr, LV_OBJ_FLAG_HIDDEN);
+
+        url_label = lv_label_create(page);
+        lv_label_set_recolor(url_label, true);
+        lv_obj_set_style_text_color(url_label, LV_COLOR_MAKE(0x80, 0xFF, 0x50), LV_PART_MAIN);
+        lv_obj_set_style_text_align(url_label, LV_TEXT_ALIGN_CENTER, 0);
+        lv_obj_add_flag(url_label, LV_OBJ_FLAG_HIDDEN);
     }
+
+    void setUrl(const char *url, const char *host)
+    {
+        lv_qrcode_update(qr, url, strlen(url));
+        lv_label_set_text_fmt(url_label, "SCAN OR OPEN\n#FFFFFF http://%s#", host);
+        lv_obj_align_to(url_label, qr, LV_ALIGN_OUT_BOTTOM_MID, 0, 8);
+        lv_obj_add_flag(continue_label, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_clear_flag(qr, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_clear_flag(url_label, LV_OBJ_FLAG_HIDDEN);
+    }
+
+    lv_obj_t *continue_label;
+    lv_obj_t *qr;
+    lv_obj_t *url_label;
 };
 
 class ConnectingToMqttPage : public BasePage
@@ -186,6 +213,7 @@ public:
     EntityStateUpdate updateStateFromKnob(PB_SmartKnobState state);
 
     void handleEvent(WiFiEvent event);
+    void showMqttSetupUrl(const char *ip);
 
     void setOSConfigNotifier(OSConfigNotifier *os_config_notifier);
     void setMotorNotifier(MotorNotifier *motor_notifier);
