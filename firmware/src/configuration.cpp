@@ -417,9 +417,9 @@ bool Configuration::clearWiFiConfiguration()
 bool Configuration::saveMQTTConfiguration(
     MQTTConfiguration mqtt_config_to_save)
 {
-    LOGV(LOG_LEVEL_DEBUG, "Saving MQTT credentials %s %d %s %s",
+    LOGV(LOG_LEVEL_DEBUG, "Saving MQTT credentials %s %d %s",
          mqtt_config_to_save.host, mqtt_config_to_save.port,
-         mqtt_config_to_save.user, mqtt_config_to_save.password);
+         mqtt_config_to_save.user); // never log the password
 
     is_mqtt_set = true;
     EEPROM.put(MQTT_HOST_EEPROM_POS, mqtt_config_to_save.host);
