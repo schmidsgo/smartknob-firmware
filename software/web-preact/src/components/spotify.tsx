@@ -17,7 +17,7 @@ const generateRandomString = (length) => {
 // Must match the Redirect URI in the Spotify developer dashboard exactly.
 const SPOTIFY_REDIRECT_URI =
   import.meta.env.VITE_SPOTIFY_REDIRECT_URI ||
-  'https://schmidsgo.github.io/smartknob-callback/';
+  'https://schmidsgo.github.io/smartknob-spotify-callback/';
 
 const getSpotifyOAuthUrl = async (clientId) => {
   const redirectUrl = SPOTIFY_REDIRECT_URI;
