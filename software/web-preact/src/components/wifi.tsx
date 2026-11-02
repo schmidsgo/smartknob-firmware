@@ -1,11 +1,46 @@
 import { Component } from 'preact';
-import { useRef, useState } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
 
 import './comp.css';
 import { StatusAlertService } from 'react-status-alert';
 
+const MANUAL_SSID = '__manual__';
+
+// Rough signal bars for the dropdown label, using the same thresholds as the knob's status icon.
+const signalLabel = (rssi) => {
+  if (rssi >= -70) return '▂▄▆█';
+  if (rssi >= -85) return '▂▄▆';
+  if (rssi >= -100) return '▂▄';
+  return '▂';
+};
+
 const WiFiComp = () => {
   const [disabled, setDisabled] = useState(false);
+
+  const [networks, setNetworks] = useState([]);
+  const [scanning, setScanning] = useState(false);
+  const [manual, setManual] = useState(false);
+
+  const scan = async () => {
+    setScanning(true);
+    try {
+      const response = await fetch(`http://${window.location.hostname}/wifi/scan`);
+      const found = response.ok ? await response.json() : [];
+      setNetworks(found);
+      if (found.length == 0) {
+        setManual(true);
+      } else if (!manual && !found.some((n) => n.ssid == ssid)) {
+        setSsid(found[0].ssid);
+      }
+    } catch (error) {
+      setManual(true);
+    }
+    setScanning(false);
+  };
+
+  useEffect(() => {
+    scan();
+  }, []);
 
   const [ssid, setSsid] = useState('');
   const [password, setPswd] = useState('');
@@ -88,13 +123,38 @@ const WiFiComp = () => {
       <form onSubmit={handleSubmit}>
         <label>
           SSID
-          <input
-            type='text'
-            value={ssid}
-            onInput={(e) => setSsid(e.currentTarget.value)}
-            required
-          />
+          <select
+            value={manual ? MANUAL_SSID : ssid}
+            disabled={scanning}
+            onChange={(e) => {
+              const value = e.currentTarget.value;
+              setManual(value == MANUAL_SSID);
+              setSsid(value == MANUAL_SSID ? '' : value);
+            }}
+          >
+            {scanning && <option value=''>Scanning...</option>}
+            {networks.map((n) => (
+              <option value={n.ssid}>
+                {n.ssid} {signalLabel(n.rssi)} {n.secure ? '🔒' : ''}
+              </option>
+            ))}
+            <option value={MANUAL_SSID}>Other network (enter manually)</option>
+          </select>
         </label>
+        {manual && (
+          <label>
+            SSID (manual)
+            <input
+              type='text'
+              value={ssid}
+              onInput={(e) => setSsid(e.currentTarget.value)}
+              required
+            />
+          </label>
+        )}
+        <button type='button' onClick={scan} disabled={scanning || disabled}>
+          {scanning ? 'Scanning...' : 'Scan again'}
+        </button>
         <br />
         <label>
           PASSWORD
