@@ -70,18 +70,20 @@ void SensorsTask::run()
     float lux_avg;
     float lux = 0.0;
 
-    if (veml.begin())
+    // Reading a VEML7700 that failed to start dereferences an uninitialised I2C register and panics, so only read it when it booted.
+    bool veml_ok = veml.begin();
+    if (veml_ok)
     {
         veml.setGain(VEML7700_GAIN_2);
         veml.setIntegrationTime(VEML7700_IT_400MS);
     }
     else
     {
-        LOGE("Failed to boot VEML7700");
+        LOGW("VEML7700 not found, ambient light sensor disabled");
     }
 
     delay(1000); // Wait for VEML7700 to boot 500ms seems to not be enough...
-    lux = veml.readLux();
+    lux = veml_ok ? veml.readLux() : 1.0f; // Without the sensor, assume full brightness.
     MovingAverage lux_filter(10);
     for (uint8_t i = 0; i < 10; i++)
     {
@@ -313,7 +315,10 @@ void SensorsTask::run()
         if (millis() - last_illumination_check_ms > 1000 / illumination_poling_rate_hz)
         {
 
-            lux = veml.readLux();
+            if (veml_ok)
+            {
+                lux = veml.readLux();
+            }
 
             lux_avg = lux_filter.addSample(lux);
 
