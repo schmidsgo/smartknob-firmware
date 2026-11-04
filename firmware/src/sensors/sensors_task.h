@@ -13,6 +13,18 @@
 
 const uint16_t PROXIMITY_SENSOR_OFFSET_MM = 10;
 
+// Presence detection. The case reflects a lot of light back into the
+// VL53L0X (crosstalk), so the reported distance is not reliable. Instead we
+// learn the idle return signal rate and treat a clear rise above it, or a
+// run of valid readings, as "someone is there".
+const float PROXIMITY_SIGNAL_SMOOTHING = 0.3f;        // EMA factor for the signal rate
+const float PROXIMITY_BASELINE_ALPHA = 0.01f;         // how fast the idle baseline follows drift
+const float PROXIMITY_PRESENT_DELTA_MCPS = 0.35f;     // rise above baseline that counts as presence
+const float PROXIMITY_ABSENT_DELTA_MCPS = 0.2f;       // rise below which presence ends
+const uint8_t PROXIMITY_PRESENT_SAMPLES = 3;          // consecutive samples to enter presence (~150 ms)
+const uint8_t PROXIMITY_ABSENT_SAMPLES = 10;          // consecutive samples to leave presence (~500 ms)
+const uint8_t PROXIMITY_BASELINE_INIT_SAMPLES = 20;   // samples averaged at boot for the first baseline
+
 class SensorsTask : public Task<SensorsTask>
 {
     friend class Task<SensorsTask>; // Allow base Task to invoke protected run()

@@ -1,8 +1,5 @@
 #include "debug.h"
 
-// Same thresholds as the screen wake-up logic in RootTask.
-static const uint16_t ENGAGE_DISTANCE_MM = 200;
-static const uint8_t ENGAGE_MAX_STATUS = 3;
 // Refresh the labels at most this often, the sensor itself runs at 20 Hz.
 static const unsigned long DEBUG_REFRESH_MS = 100;
 
@@ -31,28 +28,34 @@ DebugSettingsPage::DebugSettingsPage(lv_obj_t *parent) : BasePage(parent)
     lv_obj_t *title = lv_label_create(page);
     lv_obj_set_style_text_font(title, &aktivgrotesk_regular_12pt_8bpp_subpixel, LV_PART_MAIN);
     lv_label_set_text(title, "PROXIMITY");
-    lv_obj_align(title, LV_ALIGN_CENTER, 0, -56);
+    lv_obj_align(title, LV_ALIGN_CENTER, 0, -72);
 
     distance_label = lv_label_create(page);
     lv_obj_set_style_text_font(distance_label, &roboto_light_mono_48pt, LV_PART_MAIN);
     lv_label_set_text(distance_label, "--");
-    lv_obj_align(distance_label, LV_ALIGN_CENTER, 0, -8);
+    lv_obj_align(distance_label, LV_ALIGN_CENTER, 0, -24);
 
     status_label = lv_label_create(page);
     lv_obj_set_style_text_font(status_label, &aktivgrotesk_regular_12pt_8bpp_subpixel, LV_PART_MAIN);
     lv_label_set_text(status_label, "");
-    lv_obj_align(status_label, LV_ALIGN_CENTER, 0, 36);
+    lv_obj_align(status_label, LV_ALIGN_CENTER, 0, 16);
 
     engaged_label = lv_label_create(page);
     lv_obj_set_style_text_font(engaged_label, &aktivgrotesk_regular_12pt_8bpp_subpixel, LV_PART_MAIN);
     lv_label_set_text(engaged_label, "");
-    lv_obj_align(engaged_label, LV_ALIGN_CENTER, 0, 60);
+    lv_obj_align(engaged_label, LV_ALIGN_CENTER, 0, 38);
 
     raw_label = lv_label_create(page);
     lv_obj_set_style_text_font(raw_label, &aktivgrotesk_regular_12pt_8bpp_subpixel, LV_PART_MAIN);
     lv_obj_set_style_text_color(raw_label, lv_color_make(0x72, 0x72, 0x72), LV_PART_MAIN);
     lv_label_set_text(raw_label, "");
-    lv_obj_align(raw_label, LV_ALIGN_CENTER, 0, 84);
+    lv_obj_align(raw_label, LV_ALIGN_CENTER, 0, 62);
+
+    baseline_label = lv_label_create(page);
+    lv_obj_set_style_text_font(baseline_label, &aktivgrotesk_regular_12pt_8bpp_subpixel, LV_PART_MAIN);
+    lv_obj_set_style_text_color(baseline_label, lv_color_make(0x72, 0x72, 0x72), LV_PART_MAIN);
+    lv_label_set_text(baseline_label, "");
+    lv_obj_align(baseline_label, LV_ALIGN_CENTER, 0, 84);
 }
 
 void DebugSettingsPage::updateFromSystem(AppState state)
@@ -62,7 +65,9 @@ void DebugSettingsPage::updateFromSystem(AppState state)
 
     float signal_rate = state.proximiti_state.SignalRateMcps;
 
-    if (range_mm == last_range_mm && status == last_status && signal_rate == last_signal_rate)
+    bool present = state.proximiti_state.Present;
+
+    if (range_mm == last_range_mm && status == last_status && signal_rate == last_signal_rate && present == last_present)
     {
         return;
     }
@@ -74,6 +79,7 @@ void DebugSettingsPage::updateFromSystem(AppState state)
     last_range_mm = range_mm;
     last_status = status;
     last_signal_rate = signal_rate;
+    last_present = present;
 
     // The sensors task subtracts a 10 mm offset from an unsigned value,
     // so raw readings below 10 mm wrap around to values near 65535.
@@ -85,15 +91,14 @@ void DebugSettingsPage::updateFromSystem(AppState state)
     {
         lv_label_set_text_fmt(distance_label, "%umm", (unsigned)range_mm);
     }
-    lv_obj_align(distance_label, LV_ALIGN_CENTER, 0, -8);
+    lv_obj_align(distance_label, LV_ALIGN_CENTER, 0, -24);
 
     lv_label_set_text(status_label, rangeStatusText(status));
-    lv_obj_align(status_label, LV_ALIGN_CENTER, 0, 36);
+    lv_obj_align(status_label, LV_ALIGN_CENTER, 0, 16);
 
-    bool engaged = status < ENGAGE_MAX_STATUS && range_mm < ENGAGE_DISTANCE_MM;
-    lv_label_set_text(engaged_label, engaged ? "WAKES SCREEN" : "NO WAKE");
-    lv_obj_set_style_text_color(engaged_label, engaged ? lv_color_make(0x80, 0xFF, 0x50) : lv_color_make(0x72, 0x72, 0x72), LV_PART_MAIN);
-    lv_obj_align(engaged_label, LV_ALIGN_CENTER, 0, 60);
+    lv_label_set_text(engaged_label, present ? "PRESENT - WAKES" : "ABSENT");
+    lv_obj_set_style_text_color(engaged_label, present ? lv_color_make(0x80, 0xFF, 0x50) : lv_color_make(0x72, 0x72, 0x72), LV_PART_MAIN);
+    lv_obj_align(engaged_label, LV_ALIGN_CENTER, 0, 38);
 
     // Raw distance and return signal rate: a high signal rate with nothing
     // in front of the knob means the case reflects light back (crosstalk).
@@ -101,5 +106,11 @@ void DebugSettingsPage::updateFromSystem(AppState state)
     char raw_text[40];
     snprintf(raw_text, sizeof(raw_text), "RAW %umm  SIG %.2f", (unsigned)state.proximiti_state.RawRangeMilliMeter, signal_rate);
     lv_label_set_text(raw_label, raw_text);
-    lv_obj_align(raw_label, LV_ALIGN_CENTER, 0, 84);
+    lv_obj_align(raw_label, LV_ALIGN_CENTER, 0, 62);
+
+    // Learned idle baseline and how far the filtered signal is above it.
+    snprintf(raw_text, sizeof(raw_text), "BASE %.2f  %+.2f", state.proximiti_state.SignalBaselineMcps,
+             state.proximiti_state.SignalSmoothedMcps - state.proximiti_state.SignalBaselineMcps);
+    lv_label_set_text(baseline_label, raw_text);
+    lv_obj_align(baseline_label, LV_ALIGN_CENTER, 0, 84);
 }

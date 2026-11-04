@@ -478,9 +478,9 @@ void RootTask::run()
             app_state.proximiti_state = latest_sensors_state_.proximity;
 
             // wake up the screen
-            // RangeStatus is usually 0,2,4. We want to caputure the level of confidence 0 and 2.
-            // Add motor encoder detection? or disable motor if not "enaged detected presence"
-            if (app_state.proximiti_state.RangeStatus < 3 && app_state.proximiti_state.RangeMilliMeter < 200)
+            // The distance is unreliable because of crosstalk from the case, so the
+            // sensors task decides presence from the return signal rate (see sensors_task.h).
+            if (app_state.proximiti_state.Present)
             {
                 app_state.screen_state.has_been_engaged = true;
                 if (app_state.screen_state.awake_until < millis() + KNOB_ENGAGED_TIMEOUT_NONE_PHYSICAL) // If half of the time of the last interaction has passed, reset allow for engage to be detected again.

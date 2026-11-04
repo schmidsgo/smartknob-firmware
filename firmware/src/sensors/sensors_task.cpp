@@ -90,7 +90,8 @@ void SensorsTask::run()
         lux_filter.addSample(lux);
     }
 #endif
-    if (lox.begin())
+    bool lox_ok = lox.begin();
+    if (lox_ok)
     {
         VL53L0X_RangingMeasurementData_t measure;
         lox.rangingTest(&measure, false);
@@ -104,6 +105,12 @@ void SensorsTask::run()
     VL53L0X_RangingMeasurementData_t measure;
     lox.rangingTest(&measure, false);
     unsigned long last_proximity_check_ms = 0;
+    float proximity_signal_smoothed = 0;
+    float proximity_baseline = 0;
+    uint8_t proximity_baseline_samples = 0;
+    uint8_t proximity_present_count = 0;
+    uint8_t proximity_absent_count = 0;
+    bool proximity_present = false;
     unsigned long last_strain_check_ms = 0;
     unsigned long last_tare_ms = 0;
     unsigned long last_illumination_check_ms = 0;
@@ -160,7 +167,47 @@ void SensorsTask::run()
             sensors_state.proximity.RangeMilliMeter = measure.RangeMilliMeter - PROXIMITY_SENSOR_OFFSET_MM;
             sensors_state.proximity.RangeStatus = measure.RangeStatus;
             sensors_state.proximity.RawRangeMilliMeter = measure.RangeMilliMeter;
-            sensors_state.proximity.SignalRateMcps = measure.SignalRateRtnMegaCps / 65536.0f;
+            float signal_rate = measure.SignalRateRtnMegaCps / 65536.0f;
+            sensors_state.proximity.SignalRateMcps = signal_rate;
+
+            if (lox_ok)
+            {
+                if (proximity_baseline_samples < PROXIMITY_BASELINE_INIT_SAMPLES)
+                {
+                    // Average the first readings after boot as the idle baseline.
+                    proximity_baseline_samples++;
+                    proximity_baseline += (signal_rate - proximity_baseline) / proximity_baseline_samples;
+                    proximity_signal_smoothed = proximity_baseline;
+                }
+                else
+                {
+                    proximity_signal_smoothed += PROXIMITY_SIGNAL_SMOOTHING * (signal_rate - proximity_signal_smoothed);
+                    float delta = proximity_signal_smoothed - proximity_baseline;
+                    bool looks_present = delta > PROXIMITY_PRESENT_DELTA_MCPS || measure.RangeStatus == 0;
+                    bool looks_absent = delta < PROXIMITY_ABSENT_DELTA_MCPS && measure.RangeStatus != 0;
+
+                    proximity_present_count = looks_present ? min(proximity_present_count + 1, 255) : 0;
+                    proximity_absent_count = looks_absent ? min(proximity_absent_count + 1, 255) : 0;
+
+                    if (!proximity_present && proximity_present_count >= PROXIMITY_PRESENT_SAMPLES)
+                    {
+                        proximity_present = true;
+                    }
+                    else if (proximity_present && proximity_absent_count >= PROXIMITY_ABSENT_SAMPLES)
+                    {
+                        proximity_present = false;
+                    }
+
+                    // Only follow drift while nobody is there, so a hand held still is not learned away.
+                    if (!proximity_present && looks_absent)
+                    {
+                        proximity_baseline += PROXIMITY_BASELINE_ALPHA * (proximity_signal_smoothed - proximity_baseline);
+                    }
+                }
+            }
+            sensors_state.proximity.SignalBaselineMcps = proximity_baseline;
+            sensors_state.proximity.SignalSmoothedMcps = proximity_signal_smoothed;
+            sensors_state.proximity.Present = proximity_present;
             // todo: call this once per tick
             publishState(sensors_state);
             last_proximity_check_ms = millis();
