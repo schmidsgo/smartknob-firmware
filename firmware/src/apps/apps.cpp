@@ -41,6 +41,16 @@ void Apps::render()
     active_app->render();
 };
 
+LedRingHint Apps::getLedRingHint()
+{
+    SemaphoreGuard lock(app_mutex_);
+    if (active_app == nullptr)
+    {
+        return LedRingHint();
+    }
+    return active_app->getLedRingHint();
+}
+
 void Apps::setActive(int8_t id)
 {
     SemaphoreGuard lock(app_mutex_);
