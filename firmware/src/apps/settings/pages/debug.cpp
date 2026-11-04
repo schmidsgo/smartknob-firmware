@@ -83,6 +83,6 @@ void DebugSettingsPage::updateFromSystem(AppState state)
 
     bool engaged = status < ENGAGE_MAX_STATUS && range_mm < ENGAGE_DISTANCE_MM;
     lv_label_set_text(engaged_label, engaged ? "WAKES SCREEN" : "NO WAKE");
-    lv_obj_set_style_text_color(engaged_label, engaged ? LV_COLOR_MAKE(0x80, 0xFF, 0x50) : LV_COLOR_MAKE(0x72, 0x72, 0x72), LV_PART_MAIN);
+    lv_obj_set_style_text_color(engaged_label, engaged ? lv_color_make(0x80, 0xFF, 0x50) : lv_color_make(0x72, 0x72, 0x72), LV_PART_MAIN);
     lv_obj_align(engaged_label, LV_ALIGN_CENTER, 0, 60);
 }
