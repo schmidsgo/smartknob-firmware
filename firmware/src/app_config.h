@@ -66,6 +66,8 @@ struct ProximityState
 {
     uint16_t RangeMilliMeter;
     uint8_t RangeStatus;
+    uint16_t RawRangeMilliMeter; // as reported by the sensor, before the offset is subtracted
+    float SignalRateMcps;        // return signal rate, high values without a target point to crosstalk
 };
 
 struct StrainState

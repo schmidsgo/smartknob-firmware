@@ -475,8 +475,7 @@ void RootTask::run()
 #endif
         if (xQueueReceive(sensors_status_queue_, &latest_sensors_state_, 0) == pdTRUE)
         {
-            app_state.proximiti_state.RangeMilliMeter = latest_sensors_state_.proximity.RangeMilliMeter;
-            app_state.proximiti_state.RangeStatus = latest_sensors_state_.proximity.RangeStatus;
+            app_state.proximiti_state = latest_sensors_state_.proximity;
 
             // wake up the screen
             // RangeStatus is usually 0,2,4. We want to caputure the level of confidence 0 and 2.

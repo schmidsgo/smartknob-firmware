@@ -12,8 +12,10 @@ private:
     lv_obj_t *distance_label;
     lv_obj_t *status_label;
     lv_obj_t *engaged_label;
+    lv_obj_t *raw_label;
 
     uint16_t last_range_mm = UINT16_MAX;
     uint8_t last_status = UINT8_MAX;
+    float last_signal_rate = -1;
     unsigned long last_update_ms = 0;
 };

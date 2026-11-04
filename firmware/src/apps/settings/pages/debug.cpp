@@ -47,6 +47,12 @@ DebugSettingsPage::DebugSettingsPage(lv_obj_t *parent) : BasePage(parent)
     lv_obj_set_style_text_font(engaged_label, &aktivgrotesk_regular_12pt_8bpp_subpixel, LV_PART_MAIN);
     lv_label_set_text(engaged_label, "");
     lv_obj_align(engaged_label, LV_ALIGN_CENTER, 0, 60);
+
+    raw_label = lv_label_create(page);
+    lv_obj_set_style_text_font(raw_label, &aktivgrotesk_regular_12pt_8bpp_subpixel, LV_PART_MAIN);
+    lv_obj_set_style_text_color(raw_label, lv_color_make(0x72, 0x72, 0x72), LV_PART_MAIN);
+    lv_label_set_text(raw_label, "");
+    lv_obj_align(raw_label, LV_ALIGN_CENTER, 0, 84);
 }
 
 void DebugSettingsPage::updateFromSystem(AppState state)
@@ -54,7 +60,9 @@ void DebugSettingsPage::updateFromSystem(AppState state)
     uint16_t range_mm = state.proximiti_state.RangeMilliMeter;
     uint8_t status = state.proximiti_state.RangeStatus;
 
-    if (range_mm == last_range_mm && status == last_status)
+    float signal_rate = state.proximiti_state.SignalRateMcps;
+
+    if (range_mm == last_range_mm && status == last_status && signal_rate == last_signal_rate)
     {
         return;
     }
@@ -65,6 +73,7 @@ void DebugSettingsPage::updateFromSystem(AppState state)
     last_update_ms = millis();
     last_range_mm = range_mm;
     last_status = status;
+    last_signal_rate = signal_rate;
 
     // The sensors task subtracts a 10 mm offset from an unsigned value,
     // so raw readings below 10 mm wrap around to values near 65535.
@@ -85,4 +94,12 @@ void DebugSettingsPage::updateFromSystem(AppState state)
     lv_label_set_text(engaged_label, engaged ? "WAKES SCREEN" : "NO WAKE");
     lv_obj_set_style_text_color(engaged_label, engaged ? lv_color_make(0x80, 0xFF, 0x50) : lv_color_make(0x72, 0x72, 0x72), LV_PART_MAIN);
     lv_obj_align(engaged_label, LV_ALIGN_CENTER, 0, 60);
+
+    // Raw distance and return signal rate: a high signal rate with nothing
+    // in front of the knob means the case reflects light back (crosstalk).
+    // LVGL's printf has no float support here, so format with snprintf.
+    char raw_text[40];
+    snprintf(raw_text, sizeof(raw_text), "RAW %umm  SIG %.2f", (unsigned)state.proximiti_state.RawRangeMilliMeter, signal_rate);
+    lv_label_set_text(raw_label, raw_text);
+    lv_obj_align(raw_label, LV_ALIGN_CENTER, 0, 84);
 }

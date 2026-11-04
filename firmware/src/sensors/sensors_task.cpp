@@ -159,6 +159,8 @@ void SensorsTask::run()
 
             sensors_state.proximity.RangeMilliMeter = measure.RangeMilliMeter - PROXIMITY_SENSOR_OFFSET_MM;
             sensors_state.proximity.RangeStatus = measure.RangeStatus;
+            sensors_state.proximity.RawRangeMilliMeter = measure.RangeMilliMeter;
+            sensors_state.proximity.SignalRateMcps = measure.SignalRateRtnMegaCps / 65536.0f;
             // todo: call this once per tick
             publishState(sensors_state);
             last_proximity_check_ms = millis();
