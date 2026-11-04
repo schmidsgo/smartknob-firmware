@@ -815,8 +815,8 @@ void RootTask::updateHardware(AppState *app_state)
         scene.fill = hint.fill;
         scene.color = hint.color == LED_RING_DEFAULT_COLOR ? settings_.led_ring.color : hint.color;
 
-        const uint8_t AMBIENT_LEVEL = 10;     // faint background light
-        const uint8_t IDLE_AMBIENT_LEVEL = 5; // background light while the screen is dimmed
+        const uint8_t AMBIENT_LEVEL = 13;      // faint background light (~5 %)
+        const uint8_t IDLE_AMBIENT_LEVEL = 5;  // background light while the screen is dimmed (~2 %)
         const uint8_t BAR_LEVEL = 140;        // lit part of the bar at max brightness setting
         const uint8_t FULL_LEVEL = 70;        // whole ring while previewing a color
 
