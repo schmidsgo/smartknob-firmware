@@ -58,6 +58,8 @@ Specifically:
 
 ### How to use this codebase <a name="what"></a>
 
+> **Architektur-Doku (Deutsch):** Wie die Firmware aufgebaut ist, was welches Modul tut und wie man Apps/UI ändert, ohne den Motor-/Haptik-Kern anzufassen: [docs/ARCHITEKTUR.md](docs/ARCHITEKTUR.md)
+
 To get started with working on the firmware for Seedlabs' SmartKnob, and to flash the firmware onto your device, follow these steps. This guide specifically recommends using Visual Studio Code (VSCode) as the IDE, assuming you have PlatformIO installed in VSCode and that your SmartKnob is connected to your computer via a USB-C port.
 
 #### Setting Up a PlatformIO Project in VSCode
