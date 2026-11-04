@@ -126,6 +126,7 @@ public:
     bool saveWiFiConfiguration(WiFiConfiguration wifi_config);
     WiFiConfiguration getWiFiConfiguration();
     bool loadWiFiConfiguration();
+    bool clearWiFiConfiguration();
     bool saveMQTTConfiguration(MQTTConfiguration mqtt_config);
     MQTTConfiguration getMQTTConfiguration();
     bool loadMQTTConfiguration();

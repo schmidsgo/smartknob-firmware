@@ -12,14 +12,19 @@ const generateRandomString = (length) => {
   return randomString;
 };
 
+// Spotify only accepts https redirect URIs for non-loopback hosts, so it redirects to a
+// static relay page that forwards the code back to the knob named in the state.
+// Must match the Redirect URI in the Spotify developer dashboard exactly.
+const SPOTIFY_REDIRECT_URI =
+  import.meta.env.VITE_SPOTIFY_REDIRECT_URI ||
+  'https://schmidsgo.github.io/smartknob-spotify-callback/';
+
 const getSpotifyOAuthUrl = async (clientId) => {
-  var redirectUrl = `http://${window.location.hostname}/?spotify`;
-  if (window.location.hostname === 'localhost') {
-    redirectUrl = `http://${window.location.hostname}:5173/?spotify`;
-  }
+  const redirectUrl = SPOTIFY_REDIRECT_URI;
   const scope = 'streaming user-modify-playback-state user-read-playback-state';
 
-  const state = generateRandomString(16);
+  // "<random>~<knob host>": the random part protects against CSRF, the host tells the relay where to go back to.
+  const state = `${generateRandomString(16)}~${window.location.host}`;
 
   const authUrl = new URL('https://accounts.spotify.com/authorize');
   const params = {
@@ -36,10 +41,7 @@ const getSpotifyOAuthUrl = async (clientId) => {
 };
 
 const getAccessToken = async (code, client_id, client_secret) => {
-  var redirectUrl = `http://${window.location.hostname}/?spotify`;
-  if (window.location.hostname === 'localhost') {
-    redirectUrl = `http://${window.location.hostname}:5173/?spotify`;
-  }
+  const redirectUrl = SPOTIFY_REDIRECT_URI;
 
   const response = await fetch('https://accounts.spotify.com/api/token', {
     method: 'POST',

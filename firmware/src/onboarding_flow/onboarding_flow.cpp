@@ -95,6 +95,14 @@ void OnboardingFlow::handleNavigationEvent(NavigationEvent event)
                 break;
             case HASS_PAGE:
                 active_sub_menu = HASS_SUB_MENU;
+                if (WiFi.isConnected())
+                {
+                    // Saved WiFi is already connected: skip the WiFi step and continue with MQTT on the knob's LAN IP.
+                    wifi_notifier->redirect(DONE_MQTT);
+                    hass_flow->showMqttSetupUrl(WiFi.localIP().toString().c_str());
+                    hass_flow->render();
+                    break;
+                }
                 wifi_notifier->redirect(REDIRECT_MQTT);
                 wifi_flow->setCallback([this]()
                                        { 
@@ -106,6 +114,16 @@ void OnboardingFlow::handleNavigationEvent(NavigationEvent event)
                 break;
             case SPOTIFY_PAGE:
                 active_sub_menu = SPOTIFY_SUB_MENU;
+                if (WiFi.isConnected())
+                {
+                    // Saved WiFi is already connected: skip the WiFi step and show the Spotify setup URL right away.
+                    wifi_notifier->redirect(DONE_SPOTIFY);
+                    WiFiEvent connected_event;
+                    connected_event.type = SK_WIFI_STA_CONNECTED_NEW_CREDENTIALS;
+                    spotify_flow->handleEvent(connected_event);
+                    spotify_flow->render();
+                    break;
+                }
                 wifi_notifier->redirect(REDIRECT_SPOTIFY);
                 wifi_flow->setCallback([this]()
                                        {  

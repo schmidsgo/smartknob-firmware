@@ -60,6 +60,16 @@ void HassOnboardingFlow::handleEvent(WiFiEvent event)
     }
 }
 
+void HassOnboardingFlow::showMqttSetupUrl(const char *ip)
+{
+    snprintf(ip_data, sizeof(ip_data), "http://%s/?mqtt", ip);
+    {
+        SemaphoreGuard lock(mutex_);
+        ((ContinueInBrowserMqttPage *)page_mgr->getPage(CONTINUE_IN_BROWSER_MQTT_PAGE))->setUrl(ip_data, ip);
+    }
+    page_mgr->show(getHassPageEnum(CONTINUE_IN_BROWSER_MQTT_PAGE));
+}
+
 void HassOnboardingFlow::handleNavigationEvent(NavigationEvent event)
 {
     switch (event)

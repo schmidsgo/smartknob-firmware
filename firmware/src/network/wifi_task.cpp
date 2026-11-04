@@ -47,6 +47,9 @@ void WifiTask::handleCommand(WiFiCommand command)
     switch (command.type)
     {
     case RequestAP:
+        // Stop retrying a saved network in the background while the user sets up a new one.
+        is_config_set = false;
+        retry_count = 0;
         this->startWiFiAP();
         this->startWebServer();
         break;
@@ -76,6 +79,11 @@ void WifiTask::handleCommand(WiFiCommand command)
             break;
         }
         break;
+    case RequestForget:
+        is_config_set = false;
+        retry_count = 0;
+        WiFi.disconnect();
+        break;
     default:
         break;
     }
@@ -84,6 +92,28 @@ void WifiTask::handleCommand(WiFiCommand command)
 void WifiTask::resetRetryCount()
 {
     retry_count = 0;
+}
+
+// Diagnostic logging of station connect/disconnect events, including the disconnect reason.
+void OnWiFiDiagEvent(WiFiEvent_t event, WiFiEventInfo_t info)
+{
+    switch (event)
+    {
+    case ARDUINO_EVENT_WIFI_STA_CONNECTED:
+        LOGI("WIFI DIAG: associated with \"%.*s\" on channel %d, authmode %d", info.wifi_sta_connected.ssid_len, (const char *)info.wifi_sta_connected.ssid, info.wifi_sta_connected.channel, info.wifi_sta_connected.authmode);
+        break;
+    case ARDUINO_EVENT_WIFI_STA_GOT_IP:
+        LOGI("WIFI DIAG: got IP %s", IPAddress(info.got_ip.ip_info.ip.addr).toString().c_str());
+        break;
+    case ARDUINO_EVENT_WIFI_STA_LOST_IP:
+        LOGW("WIFI DIAG: lost IP");
+        break;
+    case ARDUINO_EVENT_WIFI_STA_DISCONNECTED:
+        LOGE("WIFI DIAG: disconnected from \"%.*s\", reason %d (%s)", info.wifi_sta_disconnected.ssid_len, (const char *)info.wifi_sta_disconnected.ssid, info.wifi_sta_disconnected.reason, WiFi.disconnectReasonName((wifi_err_reason_t)info.wifi_sta_disconnected.reason));
+        break;
+    default:
+        break;
+    }
 }
 
 void OnWiFiEventGlobal(WiFiEvent_t event)
@@ -168,6 +198,27 @@ bool WifiTask::tryNewCredentialsWiFiSTA(WiFiConfiguration wifi_config)
     wifi_sta_connecting.type = SK_WIFI_STA_TRY_NEW_CREDENTIALS;
     publishWiFiEvent(wifi_sta_connecting);
 
+    LOGI("WIFI DIAG: trying SSID \"%s\" (password length %d)", wifi_config.ssid, strlen(wifi_config.passphrase));
+    int16_t networks = WiFi.scanNetworks();
+    bool ssid_found = false;
+    for (int16_t i = 0; i < networks; i++)
+    {
+        if (WiFi.SSID(i) == wifi_config.ssid)
+        {
+            ssid_found = true;
+            LOGI("WIFI DIAG: found SSID, RSSI %d dBm, channel %d, encryption %d", WiFi.RSSI(i), WiFi.channel(i), WiFi.encryptionType(i));
+        }
+    }
+    if (!ssid_found)
+    {
+        LOGE("WIFI DIAG: SSID not found in scan (%d networks visible)", networks);
+        for (int16_t i = 0; i < networks; i++)
+        {
+            LOGI("WIFI DIAG:   \"%s\" RSSI %d channel %d", WiFi.SSID(i).c_str(), WiFi.RSSI(i), WiFi.channel(i));
+        }
+    }
+    WiFi.scanDelete();
+
     WiFi.begin(wifi_config.ssid, wifi_config.passphrase);
 
     uint32_t timeout_at = millis() + 30000;
@@ -176,6 +227,8 @@ bool WifiTask::tryNewCredentialsWiFiSTA(WiFiConfiguration wifi_config)
     {
         delay(250);
     }
+
+    LOGI("WIFI DIAG: new credentials result, status %d", WiFi.status());
 
     if (WiFi.status() == WL_CONNECTED)
     {
@@ -199,6 +252,53 @@ bool WifiTask::tryNewCredentialsWiFiSTA(WiFiConfiguration wifi_config)
     publishWiFiEvent(wifi_event);
 
     return false;
+}
+
+// Returns the networks the knob can see, so the setup page can offer them in a dropdown.
+void WifiTask::webHandlerWiFiScan()
+{
+    int16_t networks = WiFi.scanNetworks();
+
+    cJSON *root = cJSON_CreateArray();
+    for (int16_t i = 0; i < networks; i++)
+    {
+        String ssid = WiFi.SSID(i);
+        if (ssid.length() == 0)
+        {
+            continue; // hidden network
+        }
+
+        // Several access points can share one SSID; keep only the strongest (scan results are sorted by RSSI).
+        bool duplicate = false;
+        for (int16_t j = 0; j < i; j++)
+        {
+            if (WiFi.SSID(j) == ssid)
+            {
+                duplicate = true;
+                break;
+            }
+        }
+        if (duplicate)
+        {
+            continue;
+        }
+
+        cJSON *network = cJSON_CreateObject();
+        cJSON_AddStringToObject(network, "ssid", ssid.c_str());
+        cJSON_AddNumberToObject(network, "rssi", WiFi.RSSI(i));
+        cJSON_AddNumberToObject(network, "channel", WiFi.channel(i));
+        cJSON_AddBoolToObject(network, "secure", WiFi.encryptionType(i) != WIFI_AUTH_OPEN);
+        cJSON_AddItemToArray(root, network);
+    }
+    WiFi.scanDelete();
+
+    char *response = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+
+    LOGI("WIFI DIAG: scan requested by setup page, %d networks visible", networks);
+
+    server_->send(200, "application/json", response);
+    cJSON_free(response);
 }
 
 void WifiTask::webHandlerWiFiCredentials()
@@ -310,7 +410,7 @@ void WifiTask::webHandlerMQTTCredentials()
     event.body.mqtt_connecting.port = port;
     sprintf(event.body.mqtt_connecting.user, "%s", username);
     sprintf(event.body.mqtt_connecting.password, "%s", password);
-    LOGD("MQTT credentials recieved: %s %d %s %s %s", event.body.mqtt_connecting.host, event.body.mqtt_connecting.port, event.body.mqtt_connecting.user, event.body.mqtt_connecting.password, wifi_config_.knob_id);
+    LOGD("MQTT credentials recieved: %s %d %s %s", event.body.mqtt_connecting.host, event.body.mqtt_connecting.port, event.body.mqtt_connecting.user, wifi_config_.knob_id);
     sprintf(event.body.mqtt_connecting.knob_id, "%s", wifi_config_.knob_id);
 
     publishWiFiEvent(event);
@@ -420,6 +520,11 @@ void WifiTask::downloadConfig()
 
 void WifiTask::startWebServer()
 {
+    if (is_webserver_started)
+    {
+        return; // Already running, e.g. STA was started at boot and the onboarding now requests the AP.
+    }
+
     server_ = new WebServer(80);
     ElegantOTA.begin(server_);
 
@@ -434,6 +539,9 @@ void WifiTask::startWebServer()
 
     server_->on("/download/config", HTTP_GET, [this]()
                 { this->downloadConfig(); });
+
+    server_->on("/wifi/scan", HTTP_GET, [this]()
+                { this->webHandlerWiFiScan(); });
 
     server_->on("/wifi", HTTP_POST, [this]()
                 { this->webHandlerWiFiCredentials(); });
@@ -470,6 +578,7 @@ void WifiTask::run()
     unsigned long last_run_ms_ = 0;
 
     WiFi.setSleep(false);
+    WiFi.onEvent(OnWiFiDiagEvent);
 
     while (1)
     {

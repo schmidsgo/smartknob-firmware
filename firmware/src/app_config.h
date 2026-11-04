@@ -66,6 +66,11 @@ struct ProximityState
 {
     uint16_t RangeMilliMeter;
     uint8_t RangeStatus;
+    uint16_t RawRangeMilliMeter; // as reported by the sensor, before the offset is subtracted
+    float SignalRateMcps;        // return signal rate, high values without a target point to crosstalk
+    float SignalBaselineMcps;    // learned signal rate with nothing in front of the knob
+    float SignalSmoothedMcps;    // filtered signal rate used for presence detection
+    bool Present;                // debounced presence decision, used to wake the screen
 };
 
 struct StrainState

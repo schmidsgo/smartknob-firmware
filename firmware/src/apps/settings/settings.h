@@ -6,6 +6,7 @@
 #include "pages/demo.h"
 #include "pages/motor_calib.h"
 #include "pages/update.h"
+#include "pages/debug.h"
 #include "./notify/os_config_notifier/os_config_notifier.h"
 
 enum SettingsPages
@@ -16,6 +17,7 @@ enum SettingsPages
     MOTOR_CALIBRATION_SETTINGS,
     // STRAIN_CALIBRATION_SETTINGS,
     UPDATE_PAGE_SETTINGS,
+    DEBUG_PAGE_SETTINGS,
     SETTINGS_PAGE_COUNT
 };
 
@@ -32,6 +34,7 @@ public:
         add(DEMO_PAGE_SETTINGS, demo_page);
         add(MOTOR_CALIBRATION_SETTINGS, new MotorCalibrationSettingsPage(parent));
         add(UPDATE_PAGE_SETTINGS, new UpdateSettingsPage(parent));
+        add(DEBUG_PAGE_SETTINGS, new DebugSettingsPage(parent));
         // add(STRAIN_CALIBRATION_SETTINGS, new StrainCalibrationSettingsPage(parent));
 
         dotIndicatorInit();
@@ -74,6 +77,9 @@ public:
                     //     break;
                     case UPDATE_PAGE_SETTINGS:
                         lv_label_set_text(page_name, "UPDATE");
+                        break;
+                    case DEBUG_PAGE_SETTINGS:
+                        lv_label_set_text(page_name, "DEBUG");
                         break;
                     default:
                         lv_label_set_text(page_name, "Unknown");

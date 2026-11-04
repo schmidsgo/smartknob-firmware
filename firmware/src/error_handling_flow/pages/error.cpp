@@ -44,8 +44,33 @@ ErrorPage::ErrorPage(lv_obj_t *parent) : BasePage(parent)
     lv_obj_set_style_text_align(press_to_retry_label, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_align_to(press_to_retry_label, qr_code, LV_ALIGN_OUT_TOP_MID, 0, -10);
 
+    retry_option_label = lv_label_create(page);
+    lv_label_set_text(retry_option_label, "TRY AGAIN");
+    lv_obj_align(retry_option_label, LV_ALIGN_CENTER, 0, -14);
+
+    setup_option_label = lv_label_create(page);
+    lv_label_set_text(setup_option_label, "NEW WIFI SETUP");
+    lv_obj_align(setup_option_label, LV_ALIGN_CENTER, 0, 14);
+
     lv_obj_add_flag(qr_code, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(press_to_retry_label, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(retry_option_label, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(setup_option_label, LV_OBJ_FLAG_HIDDEN);
+}
+
+// Highlights the chosen option on the WiFi retry limit screen.
+void ErrorPage::setSelectedOption(uint8_t option)
+{
+    lv_obj_t *labels[] = {retry_option_label, setup_option_label};
+    const char *texts[] = {"TRY AGAIN", "NEW WIFI SETUP"};
+    for (uint8_t i = 0; i < 2; i++)
+    {
+        bool selected = i == option;
+        lv_label_set_text_fmt(labels[i], selected ? "> %s <" : "%s", texts[i]);
+        lv_color_t color = selected ? lv_color_make(0xFF, 0xFF, 0xFF) : lv_color_make(0x80, 0x80, 0x80);
+        lv_obj_set_style_text_color(labels[i], color, LV_PART_MAIN);
+        lv_obj_align(labels[i], LV_ALIGN_CENTER, 0, i == 0 ? -14 : 14);
+    }
 }
 
 void ErrorPage::show()
@@ -71,6 +96,8 @@ void ErrorPage::show()
     case EventType::SK_WIFI_STA_CONNECTION_FAILED:
         lv_obj_add_flag(qr_code, LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(press_to_retry_label, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(retry_option_label, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(setup_option_label, LV_OBJ_FLAG_HIDDEN);
 
         lv_label_set_text(error_event_label, "Connection failed");
         if (timer == nullptr)
@@ -80,14 +107,30 @@ void ErrorPage::show()
         break;
     case EventType::SK_MQTT_RETRY_LIMIT_REACHED:
     case EventType::SK_WIFI_STA_RETRY_LIMIT_REACHED:
-        lv_timer_del(timer);
-        timer = nullptr;
+        if (timer != nullptr)
+        {
+            lv_timer_del(timer);
+            timer = nullptr;
+        }
         lv_label_set_text(countdown_label, "");
         lv_label_set_text(retry_label, "");
-
-        lv_obj_clear_flag(qr_code, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_clear_flag(press_to_retry_label, LV_OBJ_FLAG_HIDDEN);
         lv_label_set_text(error_event_label, "Retry limit reached");
+
+        if (error_state.latest_event.type == EventType::SK_WIFI_STA_RETRY_LIMIT_REACHED)
+        {
+            // Rotate to choose, press to confirm (see ErrorHandlingFlow).
+            lv_obj_add_flag(qr_code, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag(press_to_retry_label, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_clear_flag(retry_option_label, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_clear_flag(setup_option_label, LV_OBJ_FLAG_HIDDEN);
+        }
+        else
+        {
+            lv_obj_clear_flag(qr_code, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_clear_flag(press_to_retry_label, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag(retry_option_label, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag(setup_option_label, LV_OBJ_FLAG_HIDDEN);
+        }
         break;
 
     default:

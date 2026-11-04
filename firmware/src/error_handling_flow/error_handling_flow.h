@@ -2,6 +2,8 @@
 #include <WiFi.h>
 
 #include "util.h"
+#include "app_config.h"
+#include "semaphore_guard.h"
 #include "display/page_manager.h"
 #include "navigation/navigation.h"
 #include "notify/motor_notifier/motor_notifier.h"
@@ -9,6 +11,16 @@
 
 #include "./pages/error.h"
 #include "./pages/reset.h"
+
+// Motor config id used while the WiFi retry limit choice is on screen, so rotation is only routed to the error flow then.
+static const char *ERROR_CHOICE_CONFIG_ID = "ERROR_CHOICE";
+
+enum WiFiErrorOption
+{
+    WIFI_ERROR_OPTION_RETRY = 0,
+    WIFI_ERROR_OPTION_SETUP,
+    WIFI_ERROR_OPTION_COUNT
+};
 
 enum ErrorPages
 {
@@ -40,6 +52,7 @@ public:
 
     void handleNavigationEvent(NavigationEvent event);
     void handleEvent(WiFiEvent event);
+    void update(AppState state);
     void setMotorNotifier(MotorNotifier *motor_notifier);
     void setWiFiNotifier(WiFiNotifier *wifi_notifier);
 
@@ -59,6 +72,9 @@ private:
 
     int32_t current_position = 0;
     ErrorType error_type = NO_ERROR;
+    uint8_t selected_option = WIFI_ERROR_OPTION_RETRY;
+
+    bool isWiFiChoiceActive();
 
     ErrorState error_state = {
         NO_ERROR,
@@ -82,6 +98,23 @@ private:
         {},
         0,
         0,
+    };
+
+    PB_SmartKnobConfig choice_motor_config = PB_SmartKnobConfig{
+        WIFI_ERROR_OPTION_RETRY,
+        0,
+        WIFI_ERROR_OPTION_RETRY,
+        0,
+        WIFI_ERROR_OPTION_COUNT - 1,
+        35 * PI / 180,
+        2,
+        1,
+        0.55,
+        "ERROR_CHOICE",
+        0,
+        {},
+        0,
+        20,
     };
 
     MotorNotifier *motor_notifier;

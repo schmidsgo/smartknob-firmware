@@ -380,8 +380,7 @@ bool Configuration::saveWiFiConfiguration(
 {
     // TODO: persist in a file
     char buf_[512];
-    sprintf(buf_, "Saving wifi credentials %s %s", wifi_config_to_save.ssid,
-            wifi_config_to_save.passphrase);
+    sprintf(buf_, "Saving wifi credentials for %s", wifi_config_to_save.ssid); // never log the passphrase
     LOGD(buf_);
 
     is_wifi_set = true;
@@ -400,18 +399,27 @@ bool Configuration::loadWiFiConfiguration()
     EEPROM.get(WIFI_PASSPHRASE_EEPROM_POS, wifi_config.passphrase);
     EEPROM.get(WIFI_SET_EEPROM_POS, is_wifi_set);
 
-    LOGV(LOG_LEVEL_DEBUG, "Loaded wifi credentials %s %s %d", wifi_config.ssid,
-         wifi_config.passphrase, is_wifi_set);
+    LOGV(LOG_LEVEL_DEBUG, "Loaded wifi credentials for %s, set %d", wifi_config.ssid, is_wifi_set);
 
     return is_wifi_set;
+}
+
+bool Configuration::clearWiFiConfiguration()
+{
+    LOGD("Clearing saved wifi credentials");
+
+    is_wifi_set = false;
+    EEPROM.put(WIFI_SET_EEPROM_POS, is_wifi_set);
+
+    return EEPROM.commit();
 }
 
 bool Configuration::saveMQTTConfiguration(
     MQTTConfiguration mqtt_config_to_save)
 {
-    LOGV(LOG_LEVEL_DEBUG, "Saving MQTT credentials %s %d %s %s",
+    LOGV(LOG_LEVEL_DEBUG, "Saving MQTT credentials %s %d %s",
          mqtt_config_to_save.host, mqtt_config_to_save.port,
-         mqtt_config_to_save.user, mqtt_config_to_save.password);
+         mqtt_config_to_save.user); // never log the password
 
     is_mqtt_set = true;
     EEPROM.put(MQTT_HOST_EEPROM_POS, mqtt_config_to_save.host);
@@ -433,9 +441,8 @@ bool Configuration::loadMQTTConfiguration()
     EEPROM.get(MQTT_PASS_EEPROM_POS, mqtt_config.password);
     EEPROM.get(MQTT_SET_EEPROM_POS, is_mqtt_set);
 
-    LOGV(LOG_LEVEL_DEBUG, "Loaded MQTT credentials %s %d %s %s %d",
-         mqtt_config.host, mqtt_config.port, mqtt_config.user,
-         mqtt_config.password, is_mqtt_set);
+    LOGV(LOG_LEVEL_DEBUG, "Loaded MQTT credentials %s %d %s, set %d",
+         mqtt_config.host, mqtt_config.port, mqtt_config.user, is_mqtt_set);
 
     return is_mqtt_set;
 }

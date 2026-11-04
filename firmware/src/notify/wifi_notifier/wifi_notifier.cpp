@@ -30,6 +30,14 @@ void WiFiNotifier::requestSTA(WiFiConfiguration wifi_config)
     xQueueSendToBack(wifi_notifications_queue, &command, 0);
 }
 
+void WiFiNotifier::requestForget()
+{
+    WiFiCommand command;
+    command.type = RequestForget;
+
+    xQueueSendToBack(wifi_notifications_queue, &command, 0);
+}
+
 void WiFiNotifier::loopTick()
 {
     if (xQueueReceive(wifi_notifications_queue, &recieved_command, 0) == pdTRUE)
