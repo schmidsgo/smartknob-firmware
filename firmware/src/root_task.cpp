@@ -788,63 +788,68 @@ void RootTask::updateHardware(AppState *app_state)
 
     if (led_ring_task_ != nullptr)
     {
-        EffectSettings effect_settings;
-        // THERE ARE 3 potential range of the display
-        // 1- Engaged
-        // 2- Not Engaged and enviroment brightness is high
-        // 3- Not engaged and enviroment brightness is low
-        // The following code is coreographing the different led states as :
-        // if 1: led ring is fully on
-        // if 2: led ring is fully off.
-        // if 3: we have 1 led on as beacon (also refered as lighthouse in other part of the code).
+        // The ring mirrors the display: a faint background light by default, and a
+        // bar in the lamp's color in apps that show a value (e.g. the light dimmer).
+        // When the screen is dimmed the ring dims along, and in a dark room with the
+        // screen off only the beacon LED stays on.
+        LedRingHint hint;
+#if SK_DISPLAY
+        if (configuration_ != nullptr && display_task_ != nullptr)
+        {
+            switch (configuration_->getOSConfiguration()->mode)
+            {
+            case DEMO:
+                hint = display_task_->getDemoApps()->getLedRingHint();
+                break;
+            case HASS:
+                hint = display_task_->getHassApps()->getLedRingHint();
+                break;
+            default:
+                break;
+            }
+        }
+#endif
+
+        LedRingScene scene;
+        scene.mode = hint.mode;
+        scene.fill = hint.fill;
+        scene.color = hint.color == LED_RING_DEFAULT_COLOR ? settings_.led_ring.color : hint.color;
+
+        const uint8_t AMBIENT_LEVEL = 10;     // faint background light
+        const uint8_t IDLE_AMBIENT_LEVEL = 5; // background light while the screen is dimmed
+        const uint8_t BAR_LEVEL = 140;        // lit part of the bar at max brightness setting
+        const uint8_t FULL_LEVEL = 70;        // whole ring while previewing a color
+
+        uint8_t max_level = (uint32_t)BAR_LEVEL * settings_.led_ring.max_bright / 65535;
+        bool idle = settings_.led_ring.dim && brightness <= settings_.screen.min_bright && app_state->screen_state.has_been_engaged == false;
+
+        scene.ambient = idle ? IDLE_AMBIENT_LEVEL : AMBIENT_LEVEL;
+        scene.level = scene.mode == LED_RING_FULL ? FULL_LEVEL * max_level / BAR_LEVEL : max_level;
+        if (idle)
+        {
+            scene.level = (uint32_t)scene.level * settings_.led_ring.min_bright / 65535;
+        }
+
         if (settings_.led_ring.enabled == false)
         {
-            effect_settings.effect_type = EffectType::LEDS_OFF;
+            scene.mode = LED_RING_OFF;
         }
-        else if (brightness > settings_.screen.min_bright || !settings_.led_ring.dim)
+        else if (settings_.led_ring.dim && brightness < settings_.screen.min_bright && app_state->screen_state.has_been_engaged == false)
         {
-            // case 1. Fade to brightness
-            effect_settings.effect_type = EffectType::TO_BRIGHTNESS;
-            effect_settings.effect_start_pixel = 0;
-            effect_settings.effect_end_pixel = NUM_LEDS;
-            effect_settings.effect_accent_pixel = 0;
-            effect_settings.effect_main_color = settings_.led_ring.color;
-            effect_settings.effect_accent_color = settings_.led_ring.beacon.color;
-            effect_settings.effect_brightness = settings_.led_ring.max_bright;
-        }
-        else if (brightness == settings_.screen.min_bright)
-        {
-
-            // case 2. Fade to brightness
-            effect_settings.effect_type = EffectType::TO_BRIGHTNESS;
-            effect_settings.effect_start_pixel = 0;
-            effect_settings.effect_end_pixel = NUM_LEDS;
-            effect_settings.effect_accent_pixel = 0;
-            effect_settings.effect_main_color = settings_.led_ring.color;
-            effect_settings.effect_accent_color = settings_.led_ring.beacon.color;
-            effect_settings.effect_brightness = settings_.led_ring.min_bright;
-        }
-        else
-        {
+            // Dark room, screen off.
             if (settings_.led_ring.beacon.enabled)
             {
-                // case 3 - Beacon
-                effect_settings.effect_type = EffectType::LIGHT_HOUSE;
-                effect_settings.effect_start_pixel = 0;
-                effect_settings.effect_end_pixel = NUM_LEDS;
-                effect_settings.effect_accent_pixel = 0;
-                effect_settings.effect_main_color = settings_.led_ring.beacon.color;
-                effect_settings.effect_accent_color = settings_.led_ring.color;
-                effect_settings.effect_brightness = settings_.led_ring.beacon.brightness;
-
-                effect_settings.led_ring_settings = settings_.led_ring;
+                scene.mode = LED_RING_BEACON;
+                scene.color = settings_.led_ring.beacon.color;
+                scene.level = (uint32_t)60 * settings_.led_ring.beacon.brightness / 65535;
             }
             else
             {
-                effect_settings.effect_type = EffectType ::LEDS_OFF;
+                scene.mode = LED_RING_OFF;
             }
         }
-        led_ring_task_->setEffect(effect_settings);
+
+        led_ring_task_->setScene(scene);
     }
 }
 

@@ -11,6 +11,7 @@
 #include "../notify/motor_notifier/motor_notifier.h"
 #include "navigation/navigation.h"
 #include "../util.h"
+#include "../led_ring/led_ring_scene.h"
 
 const char APP_SLUG_CLIMATE[48] = "climate";
 const char APP_SLUG_BLINDS[48] = "blinds";
@@ -41,6 +42,9 @@ public:
     virtual EntityStateUpdate updateStateFromKnob(PB_SmartKnobState state) { return EntityStateUpdate(); };
     virtual void updateStateFromHASS(MQTTStateUpdate mqtt_state_update) {};
     virtual void updateStateFromSystem(AppState state) {};
+
+    // What the LED ring should show while this app is open. Default: faint background light.
+    virtual LedRingHint getLedRingHint() { return LedRingHint(); };
 
     virtual void handleNavigation(NavigationEvent event) {
         // DO NOTHING BY DEFAULT

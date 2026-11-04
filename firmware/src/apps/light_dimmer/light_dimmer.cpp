@@ -195,6 +195,7 @@ EntityStateUpdate LightDimmerApp::updateStateFromKnob(PB_SmartKnobState state)
             cJSON_AddItemToObject(json, "rgb_color", rgb);
 
             static_cast<DimmerPage *>(page_mgr_->getPage(LIGHT_DIMMER_PAGE))->updateArcColor(rgb_color);
+            setLampColor(rgb_color);
         }
         else if (page_num == TEMP_PAGE)
         {
@@ -210,6 +211,7 @@ EntityStateUpdate LightDimmerApp::updateStateFromKnob(PB_SmartKnobState state)
 
             lv_color_t kelvin_color = kelvinToLvColor(kelvin);
             static_cast<DimmerPage *>(page_mgr_->getPage(LIGHT_DIMMER_PAGE))->updateArcColor(kelvin_color);
+            setLampColor(kelvin_color);
         }
 
         char *json_str = cJSON_PrintUnformatted(json);
@@ -248,7 +250,8 @@ void LightDimmerApp::updateStateFromHASS(MQTTStateUpdate mqtt_state_update)
 
     if (on != NULL)
     {
-        brightness_pos = 3; // 3 = 1%
+        // 3 = 1%. A light that was switched off stays at 0, so display and LED ring show it as off.
+        brightness_pos = on->valueint ? 3 : 0;
         if (brightness == NULL && on->valueint == 1)
         {
             current_position = brightness_pos;
@@ -307,6 +310,7 @@ void LightDimmerApp::updateStateFromHASS(MQTTStateUpdate mqtt_state_update)
 
         lv_color_t rgb_color = lv_color_hsv_to_rgb(hsv.h, hsv.s, hsv.v);
         static_cast<DimmerPage *>(page_mgr_->getPage(LIGHT_DIMMER_PAGE))->updateArcColor(LV_COLOR_MAKE(r, g, b));
+        setLampColor(r, g, b);
     }
 
     if (color_temp != NULL && !cJSON_IsNull(color_temp))
@@ -333,6 +337,7 @@ void LightDimmerApp::updateStateFromHASS(MQTTStateUpdate mqtt_state_update)
 
         lv_color_t kelvin_color = kelvinToLvColor(kelvin);
         static_cast<DimmerPage *>(page_mgr_->getPage(LIGHT_DIMMER_PAGE))->updateArcColor(kelvin_color);
+        setLampColor(kelvin_color);
     }
 
     if (on != NULL || brightness != NULL || color_temp != NULL || rgb_color != NULL)
@@ -347,4 +352,34 @@ void LightDimmerApp::updateStateFromHASS(MQTTStateUpdate mqtt_state_update)
     page_mgr_->getPage(LIGHT_DIMMER_PAGE)->update(mutex_, brightness_pos);
     page_mgr_->getPage(HUE_PAGE)->update(mutex_, hue_pos);
     page_mgr_->getPage(TEMP_PAGE)->update(mutex_, temp_pos);
+}
+void LightDimmerApp::setLampColor(lv_color_t color)
+{
+    lamp_color_ = lv_color_to32(color) & 0xFFFFFF;
+}
+
+void LightDimmerApp::setLampColor(uint8_t red, uint8_t green, uint8_t blue)
+{
+    lamp_color_ = ((uint32_t)red << 16) | ((uint32_t)green << 8) | blue;
+}
+
+LedRingHint LightDimmerApp::getLedRingHint()
+{
+    LedRingHint hint;
+    hint.color = lamp_color_;
+
+    switch (page_mgr_->getCurrentPageNum())
+    {
+    case HUE_PAGE:
+    case TEMP_PAGE:
+        // While picking a color the whole ring previews it.
+        hint.mode = LED_RING_FULL;
+        break;
+    default:
+        // Same fill as the brightness arc on the display.
+        hint.mode = LED_RING_BAR;
+        hint.fill = constrain(brightness_pos / 100.0f, 0.0f, 1.0f);
+        break;
+    }
+    return hint;
 }

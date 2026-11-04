@@ -38,6 +38,8 @@ public:
     void triggerMotorConfigUpdate();
     void handleNavigationEvent(NavigationEvent event);
 
+    LedRingHint getLedRingHint();
+
     PB_SmartKnobConfig blocked_motor_config = {
         .position_width_radians = 60 * M_PI / 180,
         .endstop_strength_unit = 0,

@@ -46,6 +46,8 @@ public:
 
     void handleNavigation(NavigationEvent event) override;
 
+    LedRingHint getLedRingHint() override;
+
 private:
     PB_SmartKnobConfig dimmer_config = PB_SmartKnobConfig{
         .position = 0,
@@ -135,4 +137,9 @@ private:
     int16_t temp_pos = 0;
 
     LightDimmerPageManager *page_mgr_ = nullptr;
+
+    // Color the lamp currently has (0xRRGGBB), mirrored on the LED ring.
+    uint32_t lamp_color_ = LED_RING_DEFAULT_COLOR;
+    void setLampColor(lv_color_t color);
+    void setLampColor(uint8_t red, uint8_t green, uint8_t blue);
 };
