@@ -38,6 +38,8 @@ public:
     App(SemaphoreHandle_t mutex);
 
     App(SemaphoreHandle_t mutex, int8_t next, int8_t back);
+    // Virtual so apps held as std::shared_ptr<App> can release their own resources.
+    virtual ~App() {}
     void render();
 
     virtual EntityStateUpdate updateStateFromKnob(PB_SmartKnobState state) { return EntityStateUpdate(); };

@@ -9,11 +9,13 @@
 //                       long press = back to the menu
 //
 // From the knob it sends {"volume": 0..100} or {"action": "play"|"pause"|"next"|"previous"}.
-// From Home Assistant it expects {"state", "volume", "muted", "title", "artist"}; every field is optional.
+// From Home Assistant it expects {"state", "volume", "muted", "title", "artist", "cover"}; every field
+// is optional. "cover" is a URL to a 240x240 RGB565 image prepared by the integration.
 class MediaPlayerApp : public App
 {
 public:
     MediaPlayerApp(SemaphoreHandle_t mutex, char *app_id, char *friendly_name, char *entity_id);
+    ~MediaPlayerApp() override;
 
     EntityStateUpdate updateStateFromKnob(PB_SmartKnobState state) override;
     void updateStateFromHASS(MQTTStateUpdate mqtt_state_update) override;
@@ -34,7 +36,12 @@ private:
     void applyMotorConfig(PB_SmartKnobConfig config, int32_t position);
     EntityStateUpdate makeUpdate(const char *key, const char *action, int32_t volume);
 
+    void requestCover();
+    void pollCover();
+    void setCover(lv_img_dsc_t *image); // takes the screen mutex itself
+
     // UI helpers, call with mutex_ held.
+    void renderSkipProgress(int16_t progress);
     void renderVolume();
     void renderPlaying();
     void renderTrack();
@@ -86,6 +93,15 @@ private:
     char title_[96] = "";
     char artist_[64] = "";
 
+    char cover_url_[384] = "";
+    lv_img_dsc_t *cover_ = nullptr;
+    bool cover_pending_ = false;
+    uint8_t cover_tries_ = 0;
+    unsigned long cover_requested_at_ = 0;
+
+    int16_t skip_progress_ = 0;
+    unsigned long skip_flash_until_ = 0;
+
     // Ignore knob states that still belong to an older motor config (after a page switch,
     // a skip or a volume change from Home Assistant).
     bool awaiting_config_ = false;
@@ -102,7 +118,13 @@ private:
     lv_obj_t *title_label_ = nullptr;
     lv_obj_t *artist_label_ = nullptr;
 
+    lv_obj_t *cover_img_ = nullptr;
+    lv_obj_t *cover_shade_ = nullptr;
+
     lv_obj_t *track_page_ = nullptr;
+    lv_obj_t *skip_arc_ = nullptr;
+    lv_obj_t *prev_label_ = nullptr;
+    lv_obj_t *next_label_ = nullptr;
     lv_obj_t *track_play_label_ = nullptr;
     lv_obj_t *track_title_label_ = nullptr;
     lv_obj_t *track_artist_label_ = nullptr;

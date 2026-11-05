@@ -1,10 +1,15 @@
 #include "media_player.h"
 #include "cJSON.h"
+#include "../../network/hass_image/hass_image_loader.h"
 #include <cstring>
 
 static const uint32_t MEDIA_PLAYER_COLOR = 0x4FC3F7;
 static const unsigned long VOLUME_ECHO_IGNORE_MS = 2000;
 static const unsigned long CONFIG_WAIT_MS = 500;
+static const unsigned long COVER_RETRY_MS = 15000;
+static const uint8_t COVER_MAX_TRIES = 4;
+static const unsigned long SKIP_FLASH_MS = 250;
+static const int16_t SKIP_STEPS = 40; // resolution of the skip progress arc
 
 MediaPlayerApp::MediaPlayerApp(SemaphoreHandle_t mutex, char *app_id_, char *friendly_name_, char *entity_id_) : App(mutex)
 {
@@ -24,6 +29,13 @@ MediaPlayerApp::MediaPlayerApp(SemaphoreHandle_t mutex, char *app_id_, char *fri
     small_icon = x40_media_player;
 
     initScreen();
+}
+
+MediaPlayerApp::~MediaPlayerApp()
+{
+    // Apps are recreated on every sync from Home Assistant; don't leak the cover.
+    cover_pending_ = false;
+    setCover(nullptr);
 }
 
 static lv_obj_t *createPage(lv_obj_t *parent)
@@ -50,6 +62,22 @@ static lv_obj_t *createTextLabel(lv_obj_t *parent, lv_coord_t width, lv_coord_t 
 void MediaPlayerApp::initScreen()
 {
     SemaphoreGuard lock(mutex_);
+
+    // --- Album cover behind both pages, darkened so text stays readable ---
+    lv_obj_set_style_bg_color(screen, LV_COLOR_MAKE(0x00, 0x00, 0x00), 0);
+    lv_obj_set_style_bg_opa(screen, LV_OPA_COVER, 0);
+
+    cover_img_ = lv_img_create(screen);
+    lv_obj_set_size(cover_img_, HassImageLoader::IMAGE_SIZE, HassImageLoader::IMAGE_SIZE);
+    lv_obj_center(cover_img_);
+    lv_obj_add_flag(cover_img_, LV_OBJ_FLAG_HIDDEN);
+
+    cover_shade_ = lv_obj_create(screen);
+    lv_obj_remove_style_all(cover_shade_);
+    lv_obj_set_size(cover_shade_, LV_HOR_RES, LV_VER_RES);
+    lv_obj_set_style_bg_color(cover_shade_, LV_COLOR_MAKE(0x00, 0x00, 0x00), 0);
+    lv_obj_set_style_bg_opa(cover_shade_, LV_OPA_60, 0);
+    lv_obj_add_flag(cover_shade_, LV_OBJ_FLAG_HIDDEN);
 
     // --- Volume page ---
     volume_page_ = createPage(screen);
@@ -89,12 +117,30 @@ void MediaPlayerApp::initScreen()
     track_page_ = createPage(screen);
     lv_obj_add_flag(track_page_, LV_OBJ_FLAG_HIDDEN);
 
-    lv_obj_t *prev_label = lv_label_create(track_page_);
+    // Upper half circle from 9 to 3 o'clock. Turning fills it from 12 o'clock towards the
+    // side you turn to; the track skips once it reaches the end.
+    skip_arc_ = lv_arc_create(track_page_);
+    lv_obj_set_size(skip_arc_, 226, 226);
+    lv_arc_set_rotation(skip_arc_, 180);
+    lv_arc_set_bg_angles(skip_arc_, 0, 180);
+    lv_arc_set_angles(skip_arc_, 90, 90);
+    lv_obj_remove_style(skip_arc_, NULL, LV_PART_KNOB);
+    lv_obj_clear_flag(skip_arc_, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_style_arc_color(skip_arc_, dark_arc_bg, LV_PART_MAIN);
+    lv_obj_set_style_arc_color(skip_arc_, lv_color_hex(MEDIA_PLAYER_COLOR), LV_PART_INDICATOR);
+    lv_obj_set_style_arc_width(skip_arc_, 10, LV_PART_MAIN);
+    lv_obj_set_style_arc_width(skip_arc_, 10, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_rounded(skip_arc_, false, LV_PART_INDICATOR);
+    lv_obj_center(skip_arc_);
+
+    prev_label_ = lv_label_create(track_page_);
+    lv_obj_t *prev_label = prev_label_;
     lv_obj_set_style_text_font(prev_label, &lv_font_montserrat_22, 0);
     lv_label_set_text(prev_label, LV_SYMBOL_PREV);
     lv_obj_align(prev_label, LV_ALIGN_LEFT_MID, 22, 0);
 
-    lv_obj_t *next_label = lv_label_create(track_page_);
+    next_label_ = lv_label_create(track_page_);
+    lv_obj_t *next_label = next_label_;
     lv_obj_set_style_text_font(next_label, &lv_font_montserrat_22, 0);
     lv_label_set_text(next_label, LV_SYMBOL_NEXT);
     lv_obj_align(next_label, LV_ALIGN_RIGHT_MID, -22, 0);
@@ -168,6 +214,91 @@ void MediaPlayerApp::renderTrack()
     lv_label_set_text(track_artist_label_, artist);
 }
 
+void MediaPlayerApp::renderSkipProgress(int16_t progress)
+{
+    // progress: -SKIP_STEPS (previous) .. 0 .. SKIP_STEPS (next)
+    int16_t sweep = abs(progress) * 90 / SKIP_STEPS;
+    if (progress >= 0)
+    {
+        lv_arc_set_angles(skip_arc_, 90, 90 + sweep);
+    }
+    else
+    {
+        lv_arc_set_angles(skip_arc_, 90 - sweep, 90);
+    }
+
+    lv_color_t idle = LV_COLOR_MAKE(0xFF, 0xFF, 0xFF);
+    lv_color_t active = lv_color_hex(MEDIA_PLAYER_COLOR);
+    lv_opa_t mix = (lv_opa_t)(abs(progress) * 255 / SKIP_STEPS);
+    lv_obj_set_style_text_color(next_label_, progress > 0 ? lv_color_mix(active, idle, mix) : idle, 0);
+    lv_obj_set_style_text_color(prev_label_, progress < 0 ? lv_color_mix(active, idle, mix) : idle, 0);
+}
+
+void MediaPlayerApp::requestCover()
+{
+    HassImageLoader::instance().request(app_id, cover_url_);
+    cover_requested_at_ = millis();
+    cover_tries_++;
+    cover_pending_ = true;
+}
+
+void MediaPlayerApp::setCover(lv_img_dsc_t *image)
+{
+    lv_img_dsc_t *old = cover_;
+    cover_ = image;
+    {
+        SemaphoreGuard lock(mutex_);
+        if (image != nullptr)
+        {
+            lv_img_set_src(cover_img_, image);
+            lv_obj_clear_flag(cover_img_, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_clear_flag(cover_shade_, LV_OBJ_FLAG_HIDDEN);
+        }
+        else
+        {
+            lv_obj_add_flag(cover_img_, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag(cover_shade_, LV_OBJ_FLAG_HIDDEN);
+            lv_img_set_src(cover_img_, NULL);
+        }
+        if (old != nullptr)
+        {
+            lv_img_cache_invalidate_src(old);
+        }
+    }
+    HassImageLoader::free(old);
+}
+
+void MediaPlayerApp::pollCover()
+{
+    if (!cover_pending_)
+    {
+        return;
+    }
+
+    bool failed = false;
+    lv_img_dsc_t *image = HassImageLoader::instance().take(app_id, cover_url_, &failed);
+    if (image != nullptr)
+    {
+        cover_pending_ = false;
+        setCover(image);
+        return;
+    }
+
+    bool retry_due = millis() - cover_requested_at_ > (failed ? COVER_RETRY_MS / 3 : COVER_RETRY_MS);
+    if (failed || retry_due)
+    {
+        if (cover_tries_ >= COVER_MAX_TRIES)
+        {
+            LOGW("Media player: giving up on cover");
+            cover_pending_ = false;
+        }
+        else if (retry_due)
+        {
+            requestCover();
+        }
+    }
+}
+
 void MediaPlayerApp::applyMotorConfig(PB_SmartKnobConfig config, int32_t position)
 {
     uint8_t nonce = motor_config.position_nonce + 1;
@@ -183,8 +314,11 @@ void MediaPlayerApp::applyMotorConfig(PB_SmartKnobConfig config, int32_t positio
 void MediaPlayerApp::showPage(Page page)
 {
     page_ = page;
+    skip_progress_ = 0;
+    skip_flash_until_ = 0;
     {
         SemaphoreGuard lock(mutex_);
+        renderSkipProgress(0);
         if (page == VOLUME_PAGE)
         {
             lv_obj_clear_flag(volume_page_, LV_OBJ_FLAG_HIDDEN);
@@ -237,6 +371,16 @@ EntityStateUpdate MediaPlayerApp::updateStateFromKnob(PB_SmartKnobState state)
 {
     EntityStateUpdate new_state;
 
+    pollCover();
+
+    if (skip_flash_until_ != 0 && millis() > skip_flash_until_)
+    {
+        skip_flash_until_ = 0;
+        skip_progress_ = 0;
+        SemaphoreGuard lock(mutex_);
+        renderSkipProgress(0);
+    }
+
     if (pending_action_ != nullptr)
     {
         const char *action = pending_action_;
@@ -260,6 +404,21 @@ EntityStateUpdate MediaPlayerApp::updateStateFromKnob(PB_SmartKnobState state)
     }
 
     int32_t position = state.current_position;
+
+    if (page_ == TRACK_PAGE && position == 0 && skip_flash_until_ == 0)
+    {
+        // Show how far the knob has to turn: the skip happens when the sub position
+        // passes the snap point.
+        float fraction = constrain(state.sub_position_unit / track_config_.snap_point, -1.0f, 1.0f);
+        int16_t progress = (int16_t)roundf(fraction * SKIP_STEPS);
+        if (progress != skip_progress_)
+        {
+            skip_progress_ = progress;
+            SemaphoreGuard lock(mutex_);
+            renderSkipProgress(progress);
+        }
+    }
+
     if (position == last_position_)
     {
         return new_state;
@@ -287,6 +446,16 @@ EntityStateUpdate MediaPlayerApp::updateStateFromKnob(PB_SmartKnobState state)
         return new_state;
     }
     const char *action = position > 0 ? "next" : "previous";
+    {
+        // Briefly show the full arc as confirmation.
+        SemaphoreGuard lock(mutex_);
+        renderSkipProgress(position > 0 ? SKIP_STEPS : -SKIP_STEPS);
+    }
+    skip_flash_until_ = millis() + SKIP_FLASH_MS;
+    if (skip_flash_until_ == 0)
+    {
+        skip_flash_until_ = 1; // 0 means "no flash"
+    }
     applyMotorConfig(track_config_, 0);
     if (motor_notifier != nullptr)
     {
@@ -309,6 +478,7 @@ void MediaPlayerApp::updateStateFromHASS(MQTTStateUpdate mqtt_state_update)
     cJSON *muted = cJSON_GetObjectItem(json, "muted");
     cJSON *title = cJSON_GetObjectItem(json, "title");
     cJSON *artist = cJSON_GetObjectItem(json, "artist");
+    cJSON *cover = cJSON_GetObjectItem(json, "cover");
 
     if (cJSON_IsString(state))
     {
@@ -328,6 +498,13 @@ void MediaPlayerApp::updateStateFromHASS(MQTTStateUpdate mqtt_state_update)
         snprintf(artist_, sizeof(artist_), "%s", artist->valuestring);
     }
 
+    bool cover_changed = false;
+    if (cJSON_IsString(cover) && strcmp(cover->valuestring, cover_url_) != 0)
+    {
+        snprintf(cover_url_, sizeof(cover_url_), "%s", cover->valuestring);
+        cover_changed = true;
+    }
+
     bool move_knob = false;
     if (cJSON_IsNumber(volume))
     {
@@ -343,6 +520,21 @@ void MediaPlayerApp::updateStateFromHASS(MQTTStateUpdate mqtt_state_update)
     }
 
     cJSON_Delete(json);
+
+    if (cover_changed)
+    {
+        if (cover_url_[0] == '\0')
+        {
+            cover_pending_ = false;
+            setCover(nullptr);
+        }
+        else
+        {
+            // Keep showing the old cover until the new one is there.
+            cover_tries_ = 0;
+            requestCover();
+        }
+    }
 
     if (move_knob)
     {
