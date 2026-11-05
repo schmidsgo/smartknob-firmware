@@ -1,4 +1,5 @@
 #include "settings.h"
+#include "sensors/press_threshold.h"
 
 SettingsApp::SettingsApp(SemaphoreHandle_t mutex) : App(mutex)
 {
@@ -42,14 +43,106 @@ SettingsPages getSettingsPageEnum(uint8_t screen)
 
 EntityStateUpdate SettingsApp::updateStateFromKnob(PB_SmartKnobState state)
 {
+    EntityStateUpdate new_state;
+
+    // After switching between page selection and editing, ignore knob states until the
+    // motor runs the new config, otherwise an old position would be read in the new mode.
+    if (awaiting_config)
+    {
+        if (state.config.position_nonce != motor_config.position_nonce)
+        {
+            return new_state;
+        }
+        awaiting_config = false;
+    }
+
+    if (editing_press)
+    {
+        int32_t steps = state.current_position < 0 ? 0 : state.current_position;
+        uint16_t value = PRESS_WEIGHT_MIN + steps * PRESS_WEIGHT_STEP;
+        if (value > PRESS_WEIGHT_MAX)
+            value = PRESS_WEIGHT_MAX;
+        if (value != press_edit_value)
+        {
+            press_edit_value = value;
+            pressPage()->setValue(press_edit_value);
+        }
+        motor_config.position = state.current_position;
+        return new_state;
+    }
+
     if (current_position != state.current_position)
     {
         current_position = state.current_position;
         page_mgr->show(getSettingsPageEnum(current_position));
     }
 
-    EntityStateUpdate new_state;
     return new_state;
+}
+
+PressSettingsPage *SettingsApp::pressPage()
+{
+    return static_cast<PressSettingsPage *>(page_mgr->getPage(PRESS_PAGE_SETTINGS));
+}
+
+void SettingsApp::startPressEdit()
+{
+    uint8_t prev_nonce = motor_config.position_nonce;
+    page_selector_config = motor_config;
+    page_selector_config.position = current_position;
+
+    press_edit_value = getPressWeight();
+    motor_config = PB_SmartKnobConfig{
+        .position = (press_edit_value - PRESS_WEIGHT_MIN) / PRESS_WEIGHT_STEP,
+        .sub_position_unit = 0,
+        .position_nonce = (uint8_t)(prev_nonce + 1),
+        .min_position = 0,
+        .max_position = (PRESS_WEIGHT_MAX - PRESS_WEIGHT_MIN) / PRESS_WEIGHT_STEP,
+        .position_width_radians = 4 * PI / 180,
+        .detent_strength_unit = 1,
+        .endstop_strength_unit = 1,
+        .snap_point = 1.1,
+        .detent_positions_count = 0,
+        .detent_positions = {},
+        .snap_point_bias = 0,
+        .led_hue = 27,
+    };
+    strncpy(motor_config.id, app_id, sizeof(motor_config.id) - 1);
+
+    editing_press = true;
+    awaiting_config = true;
+    pressPage()->setValue(press_edit_value);
+    pressPage()->setEditing(true);
+}
+
+void SettingsApp::endPressEdit(bool save)
+{
+    uint8_t prev_nonce = motor_config.position_nonce;
+
+    if (save)
+    {
+        setPressWeight(press_edit_value);
+    }
+
+    editing_press = false;
+    pressPage()->setValue(getPressWeight());
+    pressPage()->setEditing(false);
+
+    motor_config = page_selector_config;
+    motor_config.position = PRESS_PAGE_SETTINGS;
+    motor_config.position_nonce = prev_nonce + 1;
+    current_position = PRESS_PAGE_SETTINGS;
+    awaiting_config = true;
+}
+
+int8_t SettingsApp::navigationBack()
+{
+    // A long press while editing cancels the edit instead of leaving the app.
+    if (editing_press)
+    {
+        return DONT_NAVIGATE_UPDATE_MOTOR_CONFIG;
+    }
+    return App::navigationBack();
 }
 
 void SettingsApp::updateStateFromSystem(AppState state)
@@ -59,6 +152,20 @@ void SettingsApp::updateStateFromSystem(AppState state)
 
 void SettingsApp::handleNavigation(NavigationEvent event)
 {
+    if (page_mgr->getCurrentPageNum() == PRESS_PAGE_SETTINGS)
+    {
+        if (editing_press)
+        {
+            // Short press saves, long press cancels.
+            endPressEdit(event == NavigationEvent::SHORT);
+        }
+        else if (event == NavigationEvent::SHORT)
+        {
+            startPressEdit();
+        }
+        return;
+    }
+
     page_mgr->getCurrentPage()->handleNavigation(event);
 }
 
