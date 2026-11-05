@@ -14,6 +14,7 @@
 #include "apps/blinds/blinds.h"
 #include "apps/climate/climate.h"
 #include "apps/spotify/spotify.h"
+#include "apps/media_player/media_player.h"
 
 #include "app_menu.h"
 
