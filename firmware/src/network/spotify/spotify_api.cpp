@@ -318,21 +318,23 @@ bool SpotifyApi::checkAndRefreshToken()
     return true;
 }
 
+// Spotify returns no id for some Connect devices (e.g. grouped speakers).
+// An empty "device_id=" makes the API answer 404, so only add the parameter
+// when we actually have an id; otherwise the request targets the active device.
+static String withDeviceId(String url, const char *device_id, const char *fallback_device_id)
+{
+    const char *id = (device_id != nullptr && device_id[0] != '\0') ? device_id : fallback_device_id;
+    if (id != nullptr && id[0] != '\0')
+    {
+        url += (url.indexOf('?') >= 0) ? "&device_id=" : "?device_id=";
+        url += id;
+    }
+    return url;
+}
+
 bool SpotifyApi::play(const char *device_id)
 {
-    int16_t result = -255;
-    if (strcmp(device_id, "") == 0)
-    {
-        result =
-            sendPutRequest("https://api.spotify.com/v1/me/player/play?device_id=" +
-                           String(device_id_));
-    }
-    else
-    {
-        result =
-            sendPutRequest("https://api.spotify.com/v1/me/player/play?device_id=" +
-                           String(device_id));
-    }
+    int16_t result = sendPutRequest(withDeviceId("https://api.spotify.com/v1/me/player/play", device_id, device_id_));
     if (result == HTTP_CODE_OK || result == HTTP_CODE_NO_CONTENT)
     {
         return true;
@@ -343,19 +345,7 @@ bool SpotifyApi::play(const char *device_id)
 
 bool SpotifyApi::pause(const char *device_id)
 {
-    int16_t result = -255;
-    if (strcmp(device_id, "") == 0)
-    {
-        result =
-            sendPutRequest("https://api.spotify.com/v1/me/player/pause?device_id=" +
-                           String(device_id_));
-    }
-    else
-    {
-        result =
-            sendPutRequest("https://api.spotify.com/v1/me/player/pause?device_id=" +
-                           String(device_id));
-    }
+    int16_t result = sendPutRequest(withDeviceId("https://api.spotify.com/v1/me/player/pause", device_id, device_id_));
     if (result == HTTP_CODE_OK || result == HTTP_CODE_NO_CONTENT)
     {
         return true;
@@ -366,10 +356,9 @@ bool SpotifyApi::pause(const char *device_id)
 
 bool SpotifyApi::setVolume(uint8_t volume, const char *device_id)
 {
-    char buffer[128];
-    snprintf(buffer, sizeof(buffer), "https://api.spotify.com/v1/me/player/volume?volume_percent=%d&device_id=%s", volume, device_id);
-    LOGE("URL: %s", buffer);
-    int result = sendPutRequest(buffer);
+    String url = withDeviceId("https://api.spotify.com/v1/me/player/volume?volume_percent=" + String(volume), device_id, device_id_);
+    LOGV(LOG_LEVEL_DEBUG, "Spotify volume URL: %s", url.c_str());
+    int result = sendPutRequest(url);
     if (result == HTTP_CODE_OK || result == HTTP_CODE_NO_CONTENT)
     {
         return true;
