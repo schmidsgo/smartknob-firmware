@@ -9,6 +9,10 @@ HassApps::HassApps(SemaphoreHandle_t mutex) : Apps(mutex)
 void HassApps::sync(cJSON *json_apps)
 {
     clear();
+    {
+        SemaphoreGuard lock(app_mutex_);
+        app_icon_urls_.clear();
+    }
     uint16_t app_position = 0;
 
     cJSON *json_app_ = NULL;
@@ -26,7 +30,24 @@ void HassApps::sync(cJSON *json_apps)
             continue;
         }
 
-        loadApp(app_position, json_app_slug->valuestring, json_app_id->valuestring, json_friendly_name->valuestring, json_entity_id->valuestring);
+        App *app = loadApp(app_position, json_app_slug->valuestring, json_app_id->valuestring, json_friendly_name->valuestring, json_entity_id->valuestring);
+        if (app == nullptr)
+        {
+            continue;
+        }
+
+        // The stopwatch ignores the name it is given; use the one from Home Assistant.
+        if (json_friendly_name->valuestring[0] != '\0')
+        {
+            snprintf(app->friendly_name, sizeof(app->friendly_name), "%s", json_friendly_name->valuestring);
+        }
+
+        cJSON *json_icon_url = cJSON_GetObjectItemCaseSensitive(json_app_, "icon_url");
+        if (cJSON_IsString(json_icon_url) && json_icon_url->valuestring[0] != '\0' &&
+            strlen(json_icon_url->valuestring) < HassIconLoader::URL_SIZE)
+        {
+            app_icon_urls_[app_position] = json_icon_url->valuestring;
+        }
 
         app_position++;
     }
@@ -37,6 +58,14 @@ void HassApps::sync(cJSON *json_apps)
 
     updateMenu();
     setMotorNotifier(motor_notifier);
+
+    {
+        SemaphoreGuard lock(app_mutex_);
+        for (auto &entry : app_icon_urls_)
+        {
+            requestIcon(entry.first, entry.second.c_str());
+        }
+    }
     cJSON_Delete(json_apps); // DELETING DELETES POINTERS NEEDED TO DISPLAY FRIENDLY NAME ON APPS HMMMM
 }
 void HassApps::handleEvent(WiFiEvent event)
@@ -92,4 +121,82 @@ void HassApps::render()
         return lv_scr_load(waiting_for_hass);
     }
     return Apps::render();
+}
+
+EntityStateUpdate HassApps::update(AppState state)
+{
+    pollIcons();
+    return Apps::update(state);
+}
+
+// Call with app_mutex_ held.
+void HassApps::requestIcon(uint8_t app_position, const char *url)
+{
+    auto it = icons_.find(url);
+    if (it != icons_.end())
+    {
+        if (it->second.big != nullptr)
+        {
+            applyIcon(app_position, it->second);
+        }
+        // Still loading: applied when it arrives. Failed earlier: try again below.
+        if (it->second.loading || it->second.big != nullptr)
+        {
+            return;
+        }
+    }
+
+    icons_[url].loading = true;
+    if (!HassIconLoader::instance().request(url))
+    {
+        icon_backlog_.push_back(url);
+    }
+}
+
+void HassApps::pollIcons()
+{
+    SemaphoreGuard lock(app_mutex_);
+
+    while (!icon_backlog_.empty() && HassIconLoader::instance().request(icon_backlog_.back().c_str()))
+    {
+        icon_backlog_.pop_back();
+    }
+
+    HassIconLoader::Result result;
+    while (HassIconLoader::instance().poll(&result))
+    {
+        Icon &icon = icons_[result.url];
+        icon.loading = false;
+        if (result.big == nullptr)
+        {
+            LOGW("Icon not loaded, keeping built-in icon");
+            continue;
+        }
+        icon.big = result.big;
+        icon.small = result.small;
+
+        for (auto &entry : app_icon_urls_)
+        {
+            if (entry.second == result.url)
+            {
+                applyIcon(entry.first, icon);
+            }
+        }
+    }
+}
+
+// Call with app_mutex_ held.
+void HassApps::applyIcon(uint8_t app_position, const Icon &icon)
+{
+    auto app = apps.find(app_position);
+    if (app == apps.end() || app->second == nullptr)
+    {
+        return;
+    }
+    // Only the menu changes; apps keep their own icons on their screens (e.g. the
+    // switch's on/off pair).
+    if (menu != nullptr)
+    {
+        menu->setAppIcons(app_position, icon.big, icon.small);
+    }
 }

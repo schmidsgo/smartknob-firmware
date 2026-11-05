@@ -46,3 +46,32 @@ void Menu::set_menu_position(uint8_t position)
 
 uint8_t Menu::get_menu_page_count() { return menu_page_count; };
 void Menu::set_menu_page_count(uint8_t count) { menu_page_count = count; };
+
+void Menu::setAppIcons(int8_t app_key, const lv_img_dsc_t *icon, const lv_img_dsc_t *small_icon)
+{
+    SemaphoreGuard lock(mutex_);
+    for (auto &entry : pages)
+    {
+        if (entry.second != nullptr && entry.second->app_id_ == app_key)
+        {
+            entry.second->setIcons(icon, small_icon);
+        }
+    }
+
+    if (menu_page_count < 2)
+    {
+        return;
+    }
+    uint8_t prev = current_menu_position == 0 ? menu_page_count - 1 : current_menu_position - 1;
+    uint8_t next = current_menu_position + 1 >= menu_page_count ? 0 : current_menu_position + 1;
+    std::shared_ptr<MenuPage> prev_page = pages.count(prev) ? pages[prev] : nullptr;
+    std::shared_ptr<MenuPage> next_page = pages.count(next) ? pages[next] : nullptr;
+    if (prev_page != nullptr && prev_page->app_id_ == app_key)
+    {
+        lv_img_set_src(left_image_icon, small_icon);
+    }
+    if (next_page != nullptr && next_page->app_id_ == app_key)
+    {
+        lv_img_set_src(right_image_icon, small_icon);
+    }
+}
