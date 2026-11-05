@@ -430,12 +430,13 @@ void MqttTask::callback(char *topic, byte *payload, unsigned int length)
 
         MQTTStateUpdate state_update;
         state_update.all = false;
-        sprintf(state_update.app_id, "%s", app_id->valuestring);
-        sprintf(state_update.entity_id, "%s", entity_id->valuestring);
+        snprintf(state_update.app_id, sizeof(state_update.app_id), "%s", app_id->valuestring);
+        snprintf(state_update.entity_id, sizeof(state_update.entity_id), "%s", entity_id->valuestring);
         sprintf(state_update.state, "%s", "");
 
         char *state_string = cJSON_PrintUnformatted(new_state);
-        sprintf(state_update.state, "%s", state_string);
+        // snprintf: a long state (e.g. media titles) must not overflow the 256 byte buffer.
+        snprintf(state_update.state, sizeof(state_update.state), "%s", state_string);
 
         cJSON_free(state_string);
 

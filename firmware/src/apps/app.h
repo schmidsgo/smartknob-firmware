@@ -22,6 +22,7 @@ const char APP_SLUG_LIGHT_SWITCH[48] = "light_switch";
 const char APP_SLUG_SWITCH[48] = "switch";
 const char APP_SLUG_STOPWATCH[48] = "stopwatch";
 const char APP_SLUG_SPOTIFY[48] = "spotify";
+const char APP_SLUG_MEDIA_PLAYER[48] = "media_player";
 
 enum SharedAppIds : int8_t
 {
@@ -37,6 +38,8 @@ public:
     App(SemaphoreHandle_t mutex);
 
     App(SemaphoreHandle_t mutex, int8_t next, int8_t back);
+    // Virtual so apps held as std::shared_ptr<App> can release their own resources.
+    virtual ~App() {}
     void render();
 
     virtual EntityStateUpdate updateStateFromKnob(PB_SmartKnobState state) { return EntityStateUpdate(); };

@@ -58,7 +58,7 @@ struct MQTTStateUpdate
     bool all;
     char app_id[64];
     char entity_id[64];
-    char state[256];
+    char state[512]; // media player states carry title, artist and a cover URL
 };
 
 struct WiFiError
