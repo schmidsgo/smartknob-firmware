@@ -10,7 +10,7 @@ static const unsigned long COVER_RETRY_MS = 15000;
 static const uint8_t COVER_MAX_TRIES = 4;
 static const unsigned long SKIP_FLASH_MS = 250;
 static const int16_t SKIP_STEPS = 40; // resolution of the skip progress arc
-static const float SKIP_DEADZONE = 0.2f; // share of the way to the skip that shows nothing
+static const float SKIP_DEADZONE = 0.1f; // share of the way to the skip that shows nothing
 
 MediaPlayerApp::MediaPlayerApp(SemaphoreHandle_t mutex, char *app_id_, char *friendly_name_, char *entity_id_) : App(mutex)
 {
