@@ -1,3 +1,4 @@
+#include <string.h>
 #include <FFat.h>
 
 #include "logging.h"
@@ -8,6 +9,26 @@
 #include "semaphore_guard.h"
 
 #include "configuration.h"
+
+namespace
+{
+    // A fresh or erased flash reads back as 0xFF everywhere, which a bool would treat as "true".
+    // Only a stored flag of exactly 1 counts as set.
+    bool readStoredFlag(int pos)
+    {
+        return EEPROM.read(pos) == 1;
+    }
+
+    // A stored string is only usable if it is non-empty, terminated inside its buffer and not erased flash.
+    bool isStoredStringValid(const char *value, size_t length)
+    {
+        if (value[0] == '\0' || (uint8_t)value[0] == 0xFF)
+        {
+            return false;
+        }
+        return memchr(value, '\0', length) != nullptr;
+    }
+}
 
 Configuration::Configuration()
 {
@@ -397,7 +418,15 @@ bool Configuration::loadWiFiConfiguration()
 {
     EEPROM.get(WIFI_SSID_EEPROM_POS, wifi_config.ssid);
     EEPROM.get(WIFI_PASSPHRASE_EEPROM_POS, wifi_config.passphrase);
-    EEPROM.get(WIFI_SET_EEPROM_POS, is_wifi_set);
+    is_wifi_set = readStoredFlag(WIFI_SET_EEPROM_POS) &&
+                  isStoredStringValid(wifi_config.ssid, sizeof(wifi_config.ssid)) &&
+                  memchr(wifi_config.passphrase, '\0', sizeof(wifi_config.passphrase)) != nullptr;
+    if (!is_wifi_set)
+    {
+        // Never hand garbage from erased flash to the WiFi stack or the log.
+        wifi_config.ssid[0] = '\0';
+        wifi_config.passphrase[0] = '\0';
+    }
 
     LOGV(LOG_LEVEL_DEBUG, "Loaded wifi credentials for %s, set %d", wifi_config.ssid, is_wifi_set);
 
@@ -439,7 +468,16 @@ bool Configuration::loadMQTTConfiguration()
     EEPROM.get(MQTT_PORT_EEPROM_POS, mqtt_config.port);
     EEPROM.get(MQTT_USER_EEPROM_POS, mqtt_config.user);
     EEPROM.get(MQTT_PASS_EEPROM_POS, mqtt_config.password);
-    EEPROM.get(MQTT_SET_EEPROM_POS, is_mqtt_set);
+    is_mqtt_set = readStoredFlag(MQTT_SET_EEPROM_POS) &&
+                  isStoredStringValid(mqtt_config.host, sizeof(mqtt_config.host)) &&
+                  memchr(mqtt_config.user, '\0', sizeof(mqtt_config.user)) != nullptr &&
+                  memchr(mqtt_config.password, '\0', sizeof(mqtt_config.password)) != nullptr;
+    if (!is_mqtt_set)
+    {
+        mqtt_config.host[0] = '\0';
+        mqtt_config.user[0] = '\0';
+        mqtt_config.password[0] = '\0';
+    }
 
     LOGV(LOG_LEVEL_DEBUG, "Loaded MQTT credentials %s %d %s, set %d",
          mqtt_config.host, mqtt_config.port, mqtt_config.user, is_mqtt_set);
