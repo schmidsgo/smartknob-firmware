@@ -131,7 +131,7 @@ void MediaPlayerApp::renderVolume()
         lv_label_set_text_fmt(volume_label_, "%d", (int)volume_);
     }
     lv_obj_align(volume_label_, LV_ALIGN_CENTER, 0, -18);
-    lv_obj_set_style_arc_color(volume_arc_, is_muted_ ? LV_COLOR_MAKE(0x60, 0x60, 0x60) : lv_color_hex(MEDIA_PLAYER_COLOR), LV_PART_INDICATOR);
+    lv_obj_set_style_arc_color(volume_arc_, lv_color_hex(is_muted_ ? 0x606060 : MEDIA_PLAYER_COLOR), LV_PART_INDICATOR);
     lv_obj_invalidate(volume_arc_);
 }
 
