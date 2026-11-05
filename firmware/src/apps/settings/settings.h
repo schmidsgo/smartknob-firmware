@@ -7,6 +7,7 @@
 #include "pages/motor_calib.h"
 #include "pages/update.h"
 #include "pages/debug.h"
+#include "pages/press.h"
 #include "./notify/os_config_notifier/os_config_notifier.h"
 
 enum SettingsPages
@@ -15,6 +16,7 @@ enum SettingsPages
     // HASS_PAGE_SETTINGS,
     DEMO_PAGE_SETTINGS,
     MOTOR_CALIBRATION_SETTINGS,
+    PRESS_PAGE_SETTINGS,
     // STRAIN_CALIBRATION_SETTINGS,
     UPDATE_PAGE_SETTINGS,
     DEBUG_PAGE_SETTINGS,
@@ -33,6 +35,7 @@ public:
         demo_page->setOSConfigNotifier(os_config_notifier);
         add(DEMO_PAGE_SETTINGS, demo_page);
         add(MOTOR_CALIBRATION_SETTINGS, new MotorCalibrationSettingsPage(parent));
+        add(PRESS_PAGE_SETTINGS, new PressSettingsPage(parent, mutex));
         add(UPDATE_PAGE_SETTINGS, new UpdateSettingsPage(parent));
         add(DEBUG_PAGE_SETTINGS, new DebugSettingsPage(parent));
         // add(STRAIN_CALIBRATION_SETTINGS, new StrainCalibrationSettingsPage(parent));
@@ -71,6 +74,9 @@ public:
                         break;
                     case MOTOR_CALIBRATION_SETTINGS:
                         lv_label_set_text(page_name, "MOTOR");
+                        break;
+                    case PRESS_PAGE_SETTINGS:
+                        lv_label_set_text(page_name, "PRESS");
                         break;
                     // case STRAIN_CALIBRATION_SETTINGS:
                     //     lv_label_set_text(page_name, "STRAIN");
@@ -127,6 +133,7 @@ public:
     EntityStateUpdate updateStateFromKnob(PB_SmartKnobState state);
     void updateStateFromSystem(AppState state);
     void handleNavigation(NavigationEvent event);
+    int8_t navigationBack() override;
     void setOSConfigNotifier(OSConfigNotifier *os_config_notifier);
 
 private:
@@ -145,6 +152,15 @@ private:
     bool first_run = false;
 
     SettingsPageManager *page_mgr = nullptr;
+
+    // Editing the press threshold: the knob turns through threshold values instead of pages.
+    void startPressEdit();
+    void endPressEdit(bool save);
+    PressSettingsPage *pressPage();
+    bool editing_press = false;
+    bool awaiting_config = false;
+    uint16_t press_edit_value = 0;
+    PB_SmartKnobConfig page_selector_config;
 
     OSConfigNotifier *os_config_notifier_ = nullptr;
 };

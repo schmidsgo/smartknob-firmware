@@ -109,6 +109,7 @@ struct AppState
     ConnectivityState connectivity_state;
     MqttState mqtt_state;
     ProximityState proximiti_state;
+    StrainState strain_state;
     ScreenState screen_state;
     QueueHandle_t shared_events_queue = nullptr;
     PlaybackState playback_state;

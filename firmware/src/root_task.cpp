@@ -476,6 +476,7 @@ void RootTask::run()
         if (xQueueReceive(sensors_status_queue_, &latest_sensors_state_, 0) == pdTRUE)
         {
             app_state.proximiti_state = latest_sensors_state_.proximity;
+            app_state.strain_state = latest_sensors_state_.strain;
 
             // wake up the screen
             // The distance is unreliable because of crosstalk from the case, so the

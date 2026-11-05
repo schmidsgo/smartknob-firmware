@@ -1,6 +1,7 @@
 #include "sensors_task.h"
 #include "semaphore_guard.h"
 #include "util.h"
+#include "press_threshold.h"
 
 // todo: think on thise compilation flags
 
@@ -36,6 +37,7 @@ void SensorsTask::run()
     Adafruit_VL53L0X lox = Adafruit_VL53L0X();
 
 #if SK_STRAIN
+    loadPressWeight();
     strain.begin(PIN_STRAIN_DO, PIN_STRAIN_SCK);
     while (!strain.is_ready())
     {
@@ -265,7 +267,7 @@ void SensorsTask::run()
                         // LOGD("Strain raw reading: %f", sensors_state.strain.raw_value);
 
                         // TODO: calibrate and track (long term moving average) idle point (lower)
-                        sensors_state.strain.press_value = lerp(sensors_state.strain.raw_value, 0, PRESS_WEIGHT, 0, 1);
+                        sensors_state.strain.press_value = lerp(sensors_state.strain.raw_value, 0, getPressWeight(), 0, 1);
 
                         if (sensors_state.strain.press_value < strain_released)
                         {
