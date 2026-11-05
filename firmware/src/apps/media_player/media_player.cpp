@@ -10,6 +10,7 @@ static const unsigned long COVER_RETRY_MS = 15000;
 static const uint8_t COVER_MAX_TRIES = 4;
 static const unsigned long SKIP_FLASH_MS = 250;
 static const int16_t SKIP_STEPS = 40; // resolution of the skip progress arc
+static const float SKIP_DEADZONE = 0.07f; // share of the way to the skip that shows nothing
 
 MediaPlayerApp::MediaPlayerApp(SemaphoreHandle_t mutex, char *app_id_, char *friendly_name_, char *entity_id_) : App(mutex)
 {
@@ -218,6 +219,8 @@ void MediaPlayerApp::renderSkipProgress(int16_t progress)
 {
     // progress: -SKIP_STEPS (previous) .. 0 .. SKIP_STEPS (next)
     int16_t sweep = abs(progress) * 90 / SKIP_STEPS;
+    // A zero length arc can still draw a small cap, so hide the indicator at rest.
+    lv_obj_set_style_arc_opa(skip_arc_, progress == 0 ? LV_OPA_TRANSP : LV_OPA_COVER, LV_PART_INDICATOR);
     if (progress >= 0)
     {
         lv_arc_set_angles(skip_arc_, 90, 90 + sweep);
@@ -410,7 +413,11 @@ EntityStateUpdate MediaPlayerApp::updateStateFromKnob(PB_SmartKnobState state)
         // Show how far the knob has to turn: the skip happens when the sub position
         // passes the snap point.
         float fraction = constrain(state.sub_position_unit / track_config_.snap_point, -1.0f, 1.0f);
-        int16_t progress = (int16_t)roundf(fraction * SKIP_STEPS);
+        // The knob never rests exactly in the middle of the detent. Ignore that play so
+        // the arc is empty at rest, and stretch the rest so it still ends full at the skip.
+        float magnitude = fabsf(fraction);
+        magnitude = magnitude < SKIP_DEADZONE ? 0.0f : (magnitude - SKIP_DEADZONE) / (1.0f - SKIP_DEADZONE);
+        int16_t progress = (int16_t)roundf(copysignf(magnitude, fraction) * SKIP_STEPS);
         if (progress != skip_progress_)
         {
             skip_progress_ = progress;
