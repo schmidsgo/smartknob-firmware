@@ -66,6 +66,27 @@ void processImage(char *body, size_t length)
     // Here you can decode the image (e.g., using a JPEG/PNG decoder)
 }
 
+// Null-safe JSON accessors: Spotify returns null for several fields
+// (device.id, item, ...). cJSON_GetObjectItem(...)->valuestring on those used
+// to dereference NULL and crash the knob in a boot loop.
+static bool jsonCopyString(const cJSON *obj, const char *key, char *dst, size_t dst_size)
+{
+    dst[0] = '\0';
+    const char *value = cJSON_GetStringValue(cJSON_GetObjectItem(obj, key));
+    if (value == NULL)
+    {
+        return false;
+    }
+    strlcpy(dst, value, dst_size);
+    return true;
+}
+
+static double jsonNumber(const cJSON *obj, const char *key)
+{
+    const cJSON *value = cJSON_GetObjectItem(obj, key);
+    return cJSON_IsNumber(value) ? value->valuedouble : 0;
+}
+
 PlaybackState SpotifyApi::getCurrentPlaybackState()
 {
     PlaybackState playback_state{.available = false,
@@ -89,201 +110,93 @@ PlaybackState SpotifyApi::getCurrentPlaybackState()
     if (httpCode == HTTP_CODE_OK)
     {
         int content_length = http_client_.getSize();
-        char *buffer_ =
-            (char *)heap_caps_calloc(1, content_length, MALLOC_CAP_SPIRAM);
-        if (buffer_ == nullptr)
+        String payload;
+        if (content_length > 0)
         {
-            LOGE("Failed to allocate memory for buffer");
-            http_client_.end();
-            playback_state.available = false;
-            return playback_state;
+            payload.reserve(content_length + 1);
         }
+        payload = http_client_.getString();
+        http_client_.end();
 
-        WiFiClient *stream = http_client_.getStreamPtr();
-        uint16_t total_bytes_read = 0;
-        while (http_client_.connected() && (total_bytes_read < content_length))
-        {
-            // Read data in chunks and process
-            size_t available_data = stream->available();
-            if (available_data)
-            {
-                char buffer[128]; // Example buffer size
-                uint16_t bytes_read =
-                    stream->readBytes(buffer, min(available_data, sizeof(buffer)));
-                memcpy(buffer_ + total_bytes_read, buffer, bytes_read);
+        LOGV(LOG_LEVEL_DEBUG, "Spotify playback state: %d bytes (content-length %d)", payload.length(), content_length);
 
-                assert(total_bytes_read + bytes_read <= content_length);
-
-                total_bytes_read += bytes_read;
-            }
-        }
-
-        cJSON *json = cJSON_Parse(buffer_);
-
-        heap_caps_free(buffer_);
-
+        cJSON *json = cJSON_Parse(payload.c_str());
         if (json == NULL)
         {
-            LOGE("Error parsing JSON");
-            http_client_.end();
+            LOGE("Spotify: error parsing playback state JSON (%d bytes)", payload.length());
             playback_state.available = false;
             return playback_state;
         }
 
-        strcpy(playback_state.repeat_state,
-               cJSON_GetObjectItem(json, "repeat_state")->valuestring);
-        playback_state.shuffle_state =
-            cJSON_GetObjectItem(json, "shuffle_state")->valueint;
-        playback_state.timestamp =
-            cJSON_GetObjectItem(json, "timestamp")->valuedouble;
-        playback_state.progress_ms =
-            cJSON_GetObjectItem(json, "progress_ms")->valueint;
-        playback_state.is_playing =
-            cJSON_GetObjectItem(json, "is_playing")->valueint;
-        strcpy(playback_state.currently_playing_type,
-               cJSON_GetObjectItem(json, "currently_playing_type")->valuestring);
+        // Spotify marks many fields as nullable (e.g. device.id for some
+        // Connect devices, item for podcasts/ads). Every field is read via the
+        // null-safe helpers below so a missing or null value can't crash us.
+        jsonCopyString(json, "repeat_state", playback_state.repeat_state, sizeof(playback_state.repeat_state));
+        playback_state.shuffle_state = cJSON_IsTrue(cJSON_GetObjectItem(json, "shuffle_state"));
+        playback_state.timestamp = (uint64_t)jsonNumber(json, "timestamp");
+        playback_state.progress_ms = (int)jsonNumber(json, "progress_ms");
+        playback_state.is_playing = cJSON_IsTrue(cJSON_GetObjectItem(json, "is_playing"));
+        jsonCopyString(json, "currently_playing_type", playback_state.currently_playing_type, sizeof(playback_state.currently_playing_type));
 
         cJSON *device = cJSON_GetObjectItem(json, "device");
-        if (device == NULL)
+        if (cJSON_IsObject(device))
         {
-            LOGE("No device object found in JSON");
-            cJSON_Delete(json);
-            http_client_.end();
-            return playback_state;
+            if (!jsonCopyString(device, "id", playback_state.device.id, sizeof(playback_state.device.id)))
+            {
+                LOGW("Spotify: active device has no id (null)");
+            }
+            playback_state.device.is_active = cJSON_IsTrue(cJSON_GetObjectItem(device, "is_active"));
+            playback_state.device.is_private_session = cJSON_IsTrue(cJSON_GetObjectItem(device, "is_private_session"));
+            playback_state.device.is_restricted = cJSON_IsTrue(cJSON_GetObjectItem(device, "is_restricted"));
+            jsonCopyString(device, "name", playback_state.device.name, sizeof(playback_state.device.name));
+            jsonCopyString(device, "type", playback_state.device.type, sizeof(playback_state.device.type));
+            playback_state.device.volume_percent = (int)jsonNumber(device, "volume_percent");
+            playback_state.device.supports_volume = cJSON_IsTrue(cJSON_GetObjectItem(device, "supports_volume"));
+            LOGV(LOG_LEVEL_DEBUG, "Spotify device: name='%s' type='%s' id='%s' vol=%d playing=%d",
+                 playback_state.device.name, playback_state.device.type, playback_state.device.id,
+                 playback_state.device.volume_percent, playback_state.is_playing);
         }
         else
         {
-            strcpy(playback_state.device.id,
-                   cJSON_GetObjectItem(device, "id")->valuestring);
-            playback_state.device.is_active =
-                cJSON_GetObjectItem(device, "is_active")->valueint;
-            playback_state.device.is_private_session =
-                cJSON_GetObjectItem(device, "is_private_session")->valueint;
-            playback_state.device.is_restricted =
-                cJSON_GetObjectItem(device, "is_restricted")->valueint;
-            strcpy(playback_state.device.name,
-                   cJSON_GetObjectItem(device, "name")->valuestring);
-            strcpy(playback_state.device.type,
-                   cJSON_GetObjectItem(device, "type")->valuestring);
-            playback_state.device.volume_percent =
-                cJSON_GetObjectItem(device, "volume_percent")->valueint;
-            playback_state.device.supports_volume =
-                cJSON_GetObjectItem(device, "supports_volume")->valueint;
+            LOGW("Spotify: no device object in playback state");
         }
 
         cJSON *item = cJSON_GetObjectItem(json, "item");
-        if (item == NULL)
+        if (cJSON_IsObject(item))
         {
-            LOGE("No item object found in JSON");
-            cJSON_Delete(json);
-            http_client_.end();
-            return playback_state;
-        }
-        else
-        {
-            cJSON *artists = cJSON_GetObjectItem(item, "artists");
-
-            if (artists == NULL)
-            {
-                LOGE("No artists object found in JSON");
-                cJSON_Delete(json);
-                http_client_.end();
-                return playback_state;
-            }
-            else
-            {
-                strcpy(playback_state.item.artist,
-                       cJSON_GetObjectItem(cJSON_GetArrayItem(artists, 0), "name")
-                           ->valuestring); // only first artist for now
-            }
+            cJSON *first_artist = cJSON_GetArrayItem(cJSON_GetObjectItem(item, "artists"), 0);
+            jsonCopyString(first_artist, "name", playback_state.item.artist, sizeof(playback_state.item.artist));
 
             cJSON *album = cJSON_GetObjectItem(item, "album");
-            if (album == NULL)
-            {
-                LOGE("No album object found in JSON");
-                cJSON_Delete(json);
-                http_client_.end();
-                return playback_state;
-            }
-            else
+            if (cJSON_IsObject(album))
             {
                 cJSON *images = cJSON_GetObjectItem(album, "images");
-                if (images == NULL)
+                int image_count = cJSON_IsArray(images) ? cJSON_GetArraySize(images) : 0;
+                for (int i = 0; i < image_count && i < MAX_IMAGES; i++)
                 {
-                    LOGE("No images object found in JSON");
-                    cJSON_Delete(json);
-                    http_client_.end();
-                    return playback_state; // add image not available bool
+                    cJSON *image = cJSON_GetArrayItem(images, i);
+                    jsonCopyString(image, "url", playback_state.item.album.images[i].url, sizeof(playback_state.item.album.images[i].url));
+                    playback_state.item.album.images[i].width = (int)jsonNumber(image, "width");
+                    playback_state.item.album.images[i].height = (int)jsonNumber(image, "height");
                 }
-                else
-                {
-                    for (int i = 0; i < cJSON_GetArraySize(images); i++)
-                    {
-                        cJSON *image = cJSON_GetArrayItem(images, i);
-                        if (image == NULL)
-                        {
-                            LOGE("No image object found in JSON");
-                            cJSON_Delete(json);
-                            http_client_.end();
-                            return playback_state; // add image not available bool
-                        }
-                        else
-                        {
-                            strcpy(playback_state.item.album.images[i].url,
-                                   cJSON_GetObjectItem(image, "url")->valuestring);
-                            playback_state.item.album.images[i].width =
-                                cJSON_GetObjectItem(image, "width")->valueint;
-                            playback_state.item.album.images[i].height =
-                                cJSON_GetObjectItem(image, "height")->valueint;
-                        }
-                    }
-                }
-
-                strcpy(playback_state.item.album.name,
-                       cJSON_GetObjectItem(album, "name")->valuestring);
+                jsonCopyString(album, "name", playback_state.item.album.name, sizeof(playback_state.item.album.name));
             }
 
-            playback_state.item.duration_ms =
-                cJSON_GetObjectItem(item, "duration_ms")->valueint;
-            strcpy(playback_state.item.name,
-                   cJSON_GetObjectItem(item, "name")->valuestring);
-        }
-
-        cJSON *actions = cJSON_GetObjectItem(json, "actions");
-        if (actions == NULL)
-        {
-            LOGE("No actions object found in JSON");
-            cJSON_Delete(json);
-            http_client_.end();
-            // return playback_state_;
+            playback_state.item.duration_ms = (int)jsonNumber(item, "duration_ms");
+            jsonCopyString(item, "name", playback_state.item.name, sizeof(playback_state.item.name));
+            LOGV(LOG_LEVEL_DEBUG, "Spotify item: '%s' by '%s' (%d ms)", playback_state.item.name,
+                 playback_state.item.artist, playback_state.item.duration_ms);
         }
         else
         {
-            // TODO optional field from api
-            // playback_state.actions.interrupting_playback =
-            // cJSON_GetObjectItem(actions, "interrupting_playback")->valueint;
-            // playback_state.actions.pausing = cJSON_GetObjectItem(actions,
-            // "pausing")->valueint; playback_state.actions.resuming =
-            // cJSON_GetObjectItem(actions, "resuming")->valueint;
-            // playback_state.actions.seeking = cJSON_GetObjectItem(actions,
-            // "seeking")->valueint; playback_state.actions.skipping_next =
-            // cJSON_GetObjectItem(actions, "skipping_next")->valueint;
-            // playback_state.actions.skipping_prev = cJSON_GetObjectItem(actions,
-            // "skipping_prev")->valueint;
-            // playback_state.actions.toggling_repeat_context =
-            // cJSON_GetObjectItem(actions, "toggling_repeat_context")->valueint;
-            // playback_state.actions.toggling_shuffle = cJSON_GetObjectItem(actions,
-            // "toggling_shuffle")->valueint;
-            // playback_state.actions.toggling_repeat_track =
-            // cJSON_GetObjectItem(actions, "toggling_repeat_track")->valueint;
-            // playback_state.actions.transferring_playback =
-            // cJSON_GetObjectItem(actions, "transferring_playback")->valueint;
+            LOGW("Spotify: no item in playback state (type '%s')", playback_state.currently_playing_type);
         }
 
-        cJSON_Delete(json); // Free memory
+        cJSON_Delete(json);
     }
     else if (httpCode == HTTP_CODE_NO_CONTENT)
     {
+        http_client_.end();
         playback_state.available = false;
         playback_state.spotify_available = true;
         return playback_state;
@@ -291,9 +204,9 @@ PlaybackState SpotifyApi::getCurrentPlaybackState()
     else
     {
         LOGE("Error in HTTP request: %d", httpCode);
+        http_client_.end();
         return playback_state;
     }
-    http_client_.end();
     playback_state.available = true;
     playback_state.spotify_available = true;
     return playback_state;
@@ -405,21 +318,23 @@ bool SpotifyApi::checkAndRefreshToken()
     return true;
 }
 
+// Spotify returns no id for some Connect devices (e.g. grouped speakers).
+// An empty "device_id=" makes the API answer 404, so only add the parameter
+// when we actually have an id; otherwise the request targets the active device.
+static String withDeviceId(String url, const char *device_id, const char *fallback_device_id)
+{
+    const char *id = (device_id != nullptr && device_id[0] != '\0') ? device_id : fallback_device_id;
+    if (id != nullptr && id[0] != '\0')
+    {
+        url += (url.indexOf('?') >= 0) ? "&device_id=" : "?device_id=";
+        url += id;
+    }
+    return url;
+}
+
 bool SpotifyApi::play(const char *device_id)
 {
-    int16_t result = -255;
-    if (strcmp(device_id, "") == 0)
-    {
-        result =
-            sendPutRequest("https://api.spotify.com/v1/me/player/play?device_id=" +
-                           String(device_id_));
-    }
-    else
-    {
-        result =
-            sendPutRequest("https://api.spotify.com/v1/me/player/play?device_id=" +
-                           String(device_id));
-    }
+    int16_t result = sendPutRequest(withDeviceId("https://api.spotify.com/v1/me/player/play", device_id, device_id_));
     if (result == HTTP_CODE_OK || result == HTTP_CODE_NO_CONTENT)
     {
         return true;
@@ -430,19 +345,7 @@ bool SpotifyApi::play(const char *device_id)
 
 bool SpotifyApi::pause(const char *device_id)
 {
-    int16_t result = -255;
-    if (strcmp(device_id, "") == 0)
-    {
-        result =
-            sendPutRequest("https://api.spotify.com/v1/me/player/pause?device_id=" +
-                           String(device_id_));
-    }
-    else
-    {
-        result =
-            sendPutRequest("https://api.spotify.com/v1/me/player/pause?device_id=" +
-                           String(device_id));
-    }
+    int16_t result = sendPutRequest(withDeviceId("https://api.spotify.com/v1/me/player/pause", device_id, device_id_));
     if (result == HTTP_CODE_OK || result == HTTP_CODE_NO_CONTENT)
     {
         return true;
@@ -453,10 +356,9 @@ bool SpotifyApi::pause(const char *device_id)
 
 bool SpotifyApi::setVolume(uint8_t volume, const char *device_id)
 {
-    char buffer[128];
-    snprintf(buffer, sizeof(buffer), "https://api.spotify.com/v1/me/player/volume?volume_percent=%d&device_id=%s", volume, device_id);
-    LOGE("URL: %s", buffer);
-    int result = sendPutRequest(buffer);
+    String url = withDeviceId("https://api.spotify.com/v1/me/player/volume?volume_percent=" + String(volume), device_id, device_id_);
+    LOGV(LOG_LEVEL_DEBUG, "Spotify volume URL: %s", url.c_str());
+    int result = sendPutRequest(url);
     if (result == HTTP_CODE_OK || result == HTTP_CODE_NO_CONTENT)
     {
         return true;
